@@ -11,7 +11,7 @@ Both modes share the same 7 MCP servers — start once, use anywhere.
 
 ![](./code-hacker2.png)
 ![](./code-hacker.png)
-
+![](./TUI.png)
 ![](./demo.png)
 
 ---

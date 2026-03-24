@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "filesystem-command": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${workspaceFolder}/filesystem.py"]
+    }
+  }
+}

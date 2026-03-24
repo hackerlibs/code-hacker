@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server
-mcp = FastMCP("filesystem-command")
+mcp = FastMCP(name="filesystem-command", host='localhost', port=8001)
 
 # Constants
 ALLOWED_EXTENSIONS = {'.txt', '.py', '.java', '.js', '.json', '.md', '.csv', '.log', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.clj', '.edn', '.cljs', '.cljc', '.dump'}
@@ -547,4 +547,4 @@ async def search_files_ag(
 
 if __name__ == "__main__":
     # Initialize and run the server
-    mcp.run(transport='sse', host='0.0.0.0', port=8001)
+    mcp.run(transport='streamable-http')

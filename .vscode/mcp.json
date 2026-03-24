@@ -2,7 +2,7 @@
   "servers": {
     "filesystem-command": {
       "type": "sse",
-      "url": "http://localhost:8001/sse"
+      "url": "http://localhost:8001/mcp"
     },
     "git-tools": {
       "type": "sse",

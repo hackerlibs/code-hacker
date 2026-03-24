@@ -4,7 +4,7 @@
 
 | Mode | Description | Best For |
 |------|-------------|----------|
-| **VS Code Custom Agent** | `.chatmode.md` + VS Code Copilot Chat | IDE-integrated development |
+| **VS Code Custom Agent** | `code-hacker.agent.md` + VS Code Copilot Chat | IDE-integrated development |
 | **Web App (DeepAgent)** | `web_app.py` — standalone web UI with subagents | Full autonomous AI programming, multi-project coordination |
 | **TUI (Terminal UI)** | `tui_app.py` — Claude Code-style terminal interface | SSH / headless servers / terminal-first workflow |
 
@@ -30,7 +30,7 @@ bash start_servers.sh restart  # Restart all servers
 
 ### 2a. Use with VS Code (Custom Agent)
 
-See [VS Code Setup](#vs-code-setup) below — register servers in `settings.json`, place `.chatmode.md` in your project.
+See [VS Code Setup](#vs-code-setup) below — register servers in `settings.json`, place `.agent.md` in your project.
 
 ### 2b. Use with Web App (DeepAgent — Complete AI Programming Tool)
 
@@ -109,7 +109,7 @@ Code Hacker's design goal: **Replicate and surpass this closed-loop capability**
 
 Core ideas:
 1. **Separation of Concerns** — Split Claude Code's capabilities into 7 independent MCP Servers, each doing one thing
-2. **Composition over Inheritance** — Assemble multiple servers into a complete Agent via chatmode files or DeepAgent
+2. **Composition over Inheritance** — Assemble multiple servers into a complete Agent via agent files or DeepAgent
 3. **Three Frontends, One Backend** — VS Code, web_app.py, and tui_app.py share the same 7 MCP servers
 4. **Security Sandbox** — Each server has independent security policies (path checks, command blocklists, file whitelists)
 5. **Surpass, Not Imitate** — Code review and structural diff are capabilities Claude Code lacks, based on AST-level analysis and the ydiff algorithm
@@ -125,7 +125,7 @@ Core ideas:
 │  │ VS Code Copilot  │  │ web_app.py       │  │ tui_app.py              │  │
 │  │ Chat             │  │ (DeepAgent)      │  │ (Claude Code-style TUI) │  │
 │  │                  │  │                  │  │                          │  │
-│  │ .chatmode.md     │  │ FastAPI+WS       │  │ Rich + prompt_toolkit   │  │
+│  │ .agent.md     │  │ FastAPI+WS       │  │ Rich + prompt_toolkit   │  │
 │  │ tools:           │  │ create_deep_agent│  │ create_deep_agent       │  │
 │  │  filesystem-*/*  │  │ 4 subagents      │  │ 4 subagents             │  │
 │  │  git-tools/*     │  │ Hacker Web UI    │  │ Terminal streaming      │  │
@@ -373,7 +373,7 @@ Claude Code Core Capability Coverage:
 ├── tests/
 │   ├── conftest.py            # LLM test fixtures (DeepAgent session, run_agent_query)
 │   └── test_scenarios.py      # 13 real code hack scenarios (LLM-powered pytest)
-├── code-hacker.chatmode.md    # VS Code agent definition (system prompt + tool bindings)
+├── code-hacker.agent.md    # VS Code agent definition (system prompt + tool bindings)
 ├── .vscode/
 │   └── mcp.json               # MCP server registration (reference; actual config in user settings)
 ├── pyproject.toml             # Dependencies (deepagents, langchain, mcp, fastapi, ...)
@@ -493,7 +493,7 @@ If not connected, check:
 
 ### Step 4 (VS Code): Place Agent File
 
-Place `code-hacker.chatmode.md` in the **project root directory** you want to use it in.
+Place `code-hacker.agent.md` in the **project root directory** you want to use it in.
 
 > Key configuration — the `tools` field must use the `server-name/*` wildcard format:
 > ```yaml
@@ -503,14 +503,14 @@ Place `code-hacker.chatmode.md` in the **project root directory** you want to us
 
 ### Step 5 (VS Code): Start Using
 
-1. Open the project containing `code-hacker.chatmode.md` in VS Code
+1. Open the project containing `code-hacker.agent.md` in VS Code
 2. Open the Copilot Chat panel (`Ctrl+Shift+I`)
 3. Select **Code Hacker** in the **mode selector** at the top
 4. Start chatting
 
 > **Troubleshooting:** If Code Hacker doesn't appear in the mode selector:
 > - Confirm VS Code >= 1.99
-> - Confirm `.chatmode.md` file is in the workspace root
+> - Confirm `.agent.md` file is in the workspace root
 > - Restart VS Code
 
 ### Step 2 (Web App): Start DeepAgent Web Interface
@@ -695,14 +695,14 @@ Edit `BLOCKED_COMMANDS` in `filesystem.py`.
 
 ### Adjust Agent Behavior
 
-Edit the system prompt in `code-hacker.chatmode.md`.
+Edit the system prompt in `code-hacker.agent.md`.
 
 ### Add New MCP Server
 
 1. Create a new `.py` file using `FastMCP` to define tools
 2. Run it with SSE transport on an available port
 3. Register the server URL in VS Code `settings.json`
-4. Add `"new-server-name/*"` to the `tools` field in `code-hacker.chatmode.md`
+4. Add `"new-server-name/*"` to the `tools` field in `code-hacker.agent.md`
 
 ## License
 

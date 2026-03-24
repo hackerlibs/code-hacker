@@ -1,6 +1,6 @@
 # Code Hacker - VS Code Custom Agent
 
-A VS Code custom Chat Agent rivaling Claude Code, built on **6 MCP Servers** + VS Code built-in tools. Covers file operations, Git, code analysis, persistent memory, **code review**, **auto-refactoring & structural diff**, and web access. A total of **48 tools** that fully replicate Claude Code's core capabilities and surpass it in the code review dimension.
+A VS Code custom Chat Agent rivaling Claude Code, built on **7 MCP Servers** + VS Code built-in tools. Covers file operations, Git, code analysis, persistent memory, **code review**, **auto-refactoring & structural diff**, **multi-project workspace**, and web access. A total of **63 tools** that fully replicate Claude Code's core capabilities and surpass it in code review and multi-project collaboration dimensions.
 
 ![](./demo.png)
 
@@ -15,11 +15,12 @@ What makes Claude Code powerful is that it's not just a chat window — it's an 
 Code Hacker's design goal: **Replicate this closed-loop capability within VS Code Copilot Chat**.
 
 Core ideas:
-1. **Separation of Concerns** — Split Claude Code's capabilities into 6 independent MCP Servers, each doing one thing
+1. **Separation of Concerns** — Split Claude Code's capabilities into 7 independent MCP Servers, each doing one thing
 2. **Composition over Inheritance** — Assemble multiple servers into a complete Agent via chatmode files
 3. **Leverage Built-in Capabilities** — Reuse VS Code's built-in `fetch` for web access instead of reinventing the wheel
 4. **Security Sandbox** — Each server has independent security policies (path checks, command blocklists, file whitelists)
 5. **Surpass, Not Imitate** — Code review and structural diff are capabilities Claude Code lacks, based on AST-level analysis and the ydiff algorithm
+6. **Multi-Project First** — Real development involves multiple repos (frontend+backend, app+library, service+pipeline). The workspace system treats multi-repo as a first-class concept
 
 ### System Architecture Diagram
 
@@ -42,6 +43,7 @@ Core ideas:
 │                        │   memory-store/*     │                           │
 │                        │   code-review/*      │                           │
 │                        │   code-refactor/*    │                           │
+│                        │   multi-project/*    │                           │
 │                        │   fetch              │                           │
 │                        └──────────┬───────────┘                           │
 │                                   │                                       │
@@ -91,6 +93,16 @@ Core ideas:
 │  │                           │   │      (self-contained, no    │         │
 │  └───────────────────────────┘   │       external deps)        │         │
 │                                   └─────────────────────────────┘         │
+│  ┌───────────────────────────┐                                           │
+│  │  multi_project.py :8007   │  Multi-Project Workspace (15 tools)       │
+│  │                           │                                           │
+│  │  • workspace_add/remove   │   ┌─────────────────────────────┐         │
+│  │  • workspace_search       │   │  .agent-memory/             │         │
+│  │  • workspace_edit_file    │   │  └── workspace.json         │         │
+│  │  • workspace_git_status   │   │      (workspace registry)   │         │
+│  │  • workspace_commit       │   └─────────────────────────────┘         │
+│  │  • workspace_find_deps    │                                           │
+│  └───────────────────────────┘                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -104,6 +116,7 @@ Core ideas:
 | **memory-store** | `memory_store.py` | 7 | Cross-session persistent memory | Structured JSON storage + categories/tags/search. `scratchpad` for complex reasoning |
 | **code-review** | `code_review.py` | 8 | Code quality review | **Unique capability** — Claude Code doesn't have this. Self-contained AST analysis engine, quantifies code quality, locates hotspots, generates reorganization suggestions |
 | **code-refactor** | `code_refactor.py` | 4 | Auto refactoring + structural diff | **Unique capability** — Auto-splits long functions/large files. ydiff AST-level diff generates interactive HTML reports |
+| **multi-project** | `multi_project.py` | 15 | Multi-project workspace: cross-repo search, edit, git, coordinated commit | **Unique capability** — Claude Code can only work in one directory. This enables Jenkinsfile+library, frontend+backend, microservice coordination |
 
 ### Data Flow: Typical Scenarios
 
@@ -132,7 +145,21 @@ User: "Review this project's code quality"
   ⑦ ydiff_commit(".", "HEAD")                → Generate structural diff HTML report
 ```
 
-**Scenario C: Review AI-Generated Code**
+**Scenario C: Multi-Project Coordinated Edit (Code Hacker Exclusive)**
+```
+User: "The buildHelper function in the shared library changed, update Jenkinsfile too"
+
+  ① workspace_add("/repos/shared-lib", alias="lib", role="library")
+  ② workspace_add("/repos/my-app", alias="app", role="infra")
+  ③ workspace_find_dependencies("buildHelper")       → Trace all references across repos
+  ④ workspace_read_file("lib", "src/helper.py")      → Read library source
+  ⑤ workspace_edit_file("lib", "src/helper.py", ...) → Edit library code
+  ⑥ workspace_edit_file("app", "Jenkinsfile", ...)   → Update pipeline accordingly
+  ⑦ workspace_git_status()                           → Verify all changes across repos
+  ⑧ workspace_commit("lib,app", "feat: update buildHelper signature and pipeline")
+```
+
+**Scenario D: Review AI-Generated Code**
 ```
 User: "Review this AI-generated code for me"
 
@@ -180,6 +207,12 @@ User: "Review this AI-generated code for me"
 │    ├─ .bak backup before refactoring    │
 │    └─ ydiff only generates HTML reports │
 │                                         │
+│  multi_project.py:                      │
+│    ├─ File type whitelist (same policy) │
+│    ├─ Command blocklist (rm/format/dd)  │
+│    ├─ Command timeout (30s)             │
+│    └─ Workspace config in .agent-memory │
+│                                         │
 └─────────────────────────────────────────┘
 ```
 
@@ -207,6 +240,7 @@ User: "Review this AI-generated code for me"
 | **Auto Refactoring** | None | `auto_refactor` — auto-split functions/files | **Code Hacker Exclusive** |
 | **Structural Diff** | None (line-level diff only) | `ydiff_files/commit/git_changes` — AST-level | **Code Hacker Exclusive** |
 | **Change Review** | None | `review_diff_text` — quantify old/new code differences | **Code Hacker Exclusive** |
+| **Multi-Project Workspace** | Single directory only | `workspace_*` — 15 tools for cross-repo search, edit, git, coordinated commit | **Code Hacker Exclusive** |
 | **HTML Reports** | None | `generate_report` — visual quality reports | **Code Hacker Exclusive** |
 | **Sub-agents** | `Agent` parallel spawning | None | Claude Code |
 | **Images/PDF** | Supported | Not supported | Claude Code |
@@ -214,11 +248,12 @@ User: "Review this AI-generated code for me"
 
 ### Advantage Summary
 
-**Code Hacker Exclusive/Superior (9 items):**
+**Code Hacker Exclusive/Superior (10 items):**
 - **Code Review**: `review_project/file/function` quantifies code quality — Claude Code has nothing comparable
 - **Auto Refactoring**: `auto_refactor` auto-splits long functions and large files, with preview + execute modes
 - **Structural Diff**: `ydiff_files/commit` AST-based diff that understands code moves/renames — Claude Code only has line-level diff
 - **Change Review**: `review_diff_text` compares old/new code structural changes, quantifies complexity direction
+- **Multi-Project Workspace**: `workspace_*` 15 tools for cross-repo search, edit, git, coordinated commit — Claude Code is locked to a single directory
 - **Health Score**: `health_score` one-click project scoring 0-100
 - Git Operations: 11 structured tools vs. hand-written git commands
 - Code Analysis: Precise AST parsing vs. LLM reading/guessing
@@ -245,13 +280,14 @@ Claude Code Core Capability Coverage:
   Code Review      ████████████████████  ∞%   (Claude Code lacks this)
   Structural Diff  ████████████████████  ∞%   (Claude Code lacks this)
   Auto Refactor    ████████████████████  ∞%   (Claude Code lacks this)
+  Multi-Project    ████████████████████  ∞%   (Claude Code lacks this)
   Web Access       ██████████████░░░░░░   70%  (missing search engine)
   Sub-agents       ░░░░░░░░░░░░░░░░░░░░    0%  (VS Code doesn't support)
   Multimodal       ░░░░░░░░░░░░░░░░░░░░    0%  (MCP limitation)
   Notebook         ░░░░░░░░░░░░░░░░░░░░    0%  (can be extended later)
   ─────────────────────────────────────────
   Shared capability coverage    ~75%
-  Unique capabilities           +3 dimensions surpassing Claude Code
+  Unique capabilities           +4 dimensions surpassing Claude Code
 ```
 
 ---
@@ -266,6 +302,7 @@ Claude Code Core Capability Coverage:
 ├── memory_store.py            # MCP 4: Persistent memory + scratchpad (7 tools)
 ├── code_review.py             # MCP 5: Code quality review (8 tools)
 ├── code_refactor.py           # MCP 6: Auto refactoring + structural diff (4 tools)
+├── multi_project.py           # MCP 7: Multi-project workspace — cross-repo search, edit, git (15 tools)
 ├── lib/
 │   ├── __init__.py
 │   ├── ydiff_python.py        # AST structural diff engine
@@ -307,12 +344,13 @@ You can also set the `AG_PATH` environment variable to specify a custom path to 
 All MCP servers use SSE (Server-Sent Events) transport. Start each server individually:
 
 ```bash
-python filesystem.py   # Port 8001
-python git_tools.py    # Port 8002
-python code_intel.py   # Port 8003
-python memory_store.py # Port 8004
-python code_review.py  # Port 8005
-python code_refactor.py # Port 8006
+python filesystem.py      # Port 8001
+python git_tools.py       # Port 8002
+python code_intel.py      # Port 8003
+python memory_store.py    # Port 8004
+python code_review.py     # Port 8005
+python code_refactor.py   # Port 8006
+python multi_project.py   # Port 8007
 ```
 
 ### Step 2: Register MCP Servers in VS Code
@@ -346,6 +384,10 @@ Open `settings.json` (`Ctrl+Shift+P` → `Preferences: Open User Settings (JSON)
       "code-refactor": {
         "type": "sse",
         "url": "http://localhost:8006/mcp"
+      },
+      "multi-project": {
+        "type": "sse",
+        "url": "http://localhost:8007/mcp"
       }
     }
   }
@@ -354,11 +396,11 @@ Open `settings.json` (`Ctrl+Shift+P` → `Preferences: Open User Settings (JSON)
 
 ### Step 3: Verify MCP Connection
 
-After adding the configuration, VS Code's status bar will show MCP server status. Ensure all 6 servers are shown as connected.
+After adding the configuration, VS Code's status bar will show MCP server status. Ensure all 7 servers are shown as connected.
 
 If not connected, check:
-- All 6 server processes are running
-- Ports 8001-8006 are not occupied by other processes
+- All 7 server processes are running
+- Ports 8001-8007 are not occupied by other processes
 - `mcp` package is installed (`pip install mcp`)
 
 ### Step 4: Place Agent File
@@ -367,7 +409,7 @@ Place `code-hacker.chatmode.md` in the **project root directory** you want to us
 
 > Key configuration — the `tools` field must use the `server-name/*` wildcard format:
 > ```yaml
-> tools: ["filesystem-command/*", "git-tools/*", "code-intel/*", "memory-store/*", "code-review/*", "code-refactor/*", "fetch"]
+> tools: ["filesystem-command/*", "git-tools/*", "code-intel/*", "memory-store/*", "code-review/*", "code-refactor/*", "multi-project/*", "fetch"]
 > ```
 > `fetch` is a VS Code built-in tool and requires no additional configuration.
 
@@ -461,6 +503,26 @@ Place `code-hacker.chatmode.md` in the **project root directory** you want to us
 | `ydiff_commit` | Git commit structural diff, multi-file HTML report |
 | `ydiff_git_changes` | Compare structural changes between any two git refs |
 
+### multi-project (15 tools)
+
+| Tool | Description |
+|------|-------------|
+| `workspace_add` | Register a project into the workspace (with alias, role, description) |
+| `workspace_remove` | Remove a project from the workspace |
+| `workspace_list` | List all projects with live git status |
+| `workspace_overview` | High-level overview of all projects (languages, configs, structure) |
+| `workspace_search` | Regex/text search across all workspace projects |
+| `workspace_find_files` | Glob pattern file search across all projects |
+| `workspace_find_dependencies` | Trace a symbol across all projects (cross-repo impact analysis) |
+| `workspace_read_file` | Read a file from any project by alias |
+| `workspace_edit_file` | Precise string replacement in any project |
+| `workspace_write_file` | Write/create a file in any project |
+| `workspace_git_status` | Bird's-eye git status across all repos |
+| `workspace_git_diff` | Diff summary across all repos |
+| `workspace_git_log` | Recent commits across all repos |
+| `workspace_commit` | Coordinated commit with same message across multiple repos |
+| `workspace_exec` | Execute a shell command in the context of any project |
+
 ### VS Code Built-in
 
 | Tool | Description |
@@ -484,6 +546,15 @@ You: Remember: this project's API should use the /api/v2 prefix
 
 You: Look up FastAPI middleware docs
 → fetch to retrieve documentation content and summarize
+
+You: Register my frontend and backend repos, then search for all API endpoints
+→ workspace_add × 2 → workspace_search("@app.route\|@router") across both repos
+
+You: The shared library's buildHelper changed, update the Jenkinsfile too
+→ workspace_find_dependencies("buildHelper") → workspace_edit_file × 2 → workspace_commit
+
+You: Show me what's changed across all my projects
+→ workspace_git_status → workspace_git_diff
 ```
 
 ## Customization & Extension

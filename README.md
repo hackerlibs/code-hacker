@@ -1,13 +1,14 @@
 # Code Hacker — AI Programming Expert
 
-**7 MCP Servers** powering **66+ tools** for a complete AI programming toolchain. Two ways to use:
+**7 MCP Servers** powering **66+ tools** for a complete AI programming toolchain. Three ways to use:
 
 | Mode | Description | Best For |
 |------|-------------|----------|
 | **VS Code Custom Agent** | `.chatmode.md` + VS Code Copilot Chat | IDE-integrated development |
 | **Web App (DeepAgent)** | `web_app.py` — standalone web UI with subagents | Full autonomous AI programming, multi-project coordination |
+| **TUI (Terminal UI)** | `tui_app.py` — Claude Code-style terminal interface | SSH / headless servers / terminal-first workflow |
 
-Both modes share the same 7 MCP servers — start once, use anywhere.
+All three modes share the same 7 MCP servers — start once, use anywhere.
 
 ![](./code-hacker2.png)
 ![](./code-hacker.png)
@@ -43,7 +44,16 @@ OPENROUTER_API_KEY=your-key uv run python web_app.py
 # Open http://localhost:8000
 ```
 
-The web app is a **complete AI programming tool** built on [deepagents](https://github.com/anthropics/deepagents) (`create_deep_agent`):
+### 2c. Use with TUI (Claude Code-style Terminal Interface)
+
+```bash
+# Start the TUI (requires OPENROUTER_API_KEY)
+OPENROUTER_API_KEY=your-key uv run python tui_app.py
+```
+
+The TUI provides a **Claude Code-style terminal experience** — interactive prompt, streaming Markdown output with syntax highlighting, real-time tool call display (`⏵ Read` → `✓ Read`), command history (↑/↓), and slash commands (`/help`, `/clear`, `/status`, `/quit`). Built on Rich + prompt_toolkit, no extra dependencies required.
+
+The web app (and TUI) is a **complete AI programming tool** built on [deepagents](https://github.com/anthropics/deepagents) (`create_deep_agent`):
 - **66+ MCP tools** from all 7 servers, unified into a single autonomous agent
 - **4 specialized subagents**: Git Archaeologist, Code Scanner, Code Reviewer, Workspace Coordinator
 - **Persistent memory** via `FilesystemBackend` + `MemoryMiddleware`
@@ -100,7 +110,7 @@ Code Hacker's design goal: **Replicate and surpass this closed-loop capability**
 Core ideas:
 1. **Separation of Concerns** — Split Claude Code's capabilities into 7 independent MCP Servers, each doing one thing
 2. **Composition over Inheritance** — Assemble multiple servers into a complete Agent via chatmode files or DeepAgent
-3. **Two Frontends, One Backend** — VS Code and web_app.py share the same 7 MCP servers
+3. **Three Frontends, One Backend** — VS Code, web_app.py, and tui_app.py share the same 7 MCP servers
 4. **Security Sandbox** — Each server has independent security policies (path checks, command blocklists, file whitelists)
 5. **Surpass, Not Imitate** — Code review and structural diff are capabilities Claude Code lacks, based on AST-level analysis and the ydiff algorithm
 6. **Multi-Project First** — Real development involves multiple repos (frontend+backend, app+library, service+pipeline). The workspace system treats multi-repo as a first-class concept
@@ -108,50 +118,50 @@ Core ideas:
 ### System Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Two Frontends, One Backend                       │
-│                                                                         │
-│  ┌─────────────────────────┐    ┌─────────────────────────────────────┐ │
-│  │  VS Code Copilot Chat   │    │  web_app.py (DeepAgent)            │ │
-│  │                         │    │                                     │ │
-│  │  code-hacker.chatmode.md│    │  create_deep_agent(                │ │
-│  │  tools:                 │    │    model, tools, subagents,        │ │
-│  │   filesystem-command/*  │    │    memory, backend                 │ │
-│  │   git-tools/*           │    │  )                                 │ │
-│  │   code-intel/*          │    │                                     │ │
-│  │   memory-store/*        │    │  Subagents:                        │ │
-│  │   code-review/*         │    │   • git_archaeologist              │ │
-│  │   code-refactor/*       │    │   • code_scanner                   │ │
-│  │   multi-project/*       │    │   • code_reviewer                  │ │
-│  │   fetch                 │    │   • workspace_coordinator          │ │
-│  └────────────┬────────────┘    └──────────────────┬──────────────────┘ │
-│               │                                     │                   │
-│               └──────────────┬──────────────────────┘                   │
-│                              │                                          │
-│               ┌──────────────▼──────────────────────┐                   │
-│               │  7 MCP Servers (streamable-http)     │                   │
-│               │  bash start_servers.sh               │                   │
-│               └──────────────┬──────────────────────┘                   │
-│                              │                                          │
-│  ┌───────────────────────────▼───────────────────────────────────────┐  │
-│  │                                                                    │  │
-│  │  filesystem.py :8001 (12 tools)  │  git_tools.py :8002 (11 tools) │  │
-│  │   read/write/edit/find/search    │   status/diff/log/blame/branch │  │
-│  │   execute_command                │   add/commit/stash/checkout    │  │
-│  │                                  │                                │  │
-│  │  code_intel.py :8003 (5 tools)   │  memory_store.py :8004 (11 t.) │  │
-│  │   AST analysis, symbols          │   save/get/search/scratchpad   │  │
-│  │   project_overview, dep graph    │   qa_experience_*              │  │
-│  │                                  │                                │  │
-│  │  code_review.py :8005 (8 tools)  │  code_refactor.py :8006 (4 t.) │  │
-│  │   review_project/file/function   │   auto_refactor               │  │
-│  │   health_score, find_complex     │   ydiff_files/commit/changes   │  │
-│  │                                  │                                │  │
-│  │  multi_project.py :8007 (15 tools)                                │  │
-│  │   workspace_add/search/edit/commit — cross-repo coordination      │  │
-│  │                                                                    │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       Three Frontends, One Backend                          │
+│                                                                             │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐  │
+│  │ VS Code Copilot  │  │ web_app.py       │  │ tui_app.py              │  │
+│  │ Chat             │  │ (DeepAgent)      │  │ (Claude Code-style TUI) │  │
+│  │                  │  │                  │  │                          │  │
+│  │ .chatmode.md     │  │ FastAPI+WS       │  │ Rich + prompt_toolkit   │  │
+│  │ tools:           │  │ create_deep_agent│  │ create_deep_agent       │  │
+│  │  filesystem-*/*  │  │ 4 subagents      │  │ 4 subagents             │  │
+│  │  git-tools/*     │  │ Hacker Web UI    │  │ Terminal streaming      │  │
+│  │  code-intel/*    │  │                  │  │ ⏵ Read → ✓ Read        │  │
+│  │  memory-store/*  │  │ http://localhost  │  │ Markdown rendering      │  │
+│  │  code-review/*   │  │       :8000      │  │ Command history ↑↓      │  │
+│  │  code-refactor/* │  │                  │  │ /help /clear /status    │  │
+│  │  multi-project/* │  │                  │  │                          │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────────┬─────────────┘  │
+│           │                      │                          │               │
+│           └──────────────────────┼──────────────────────────┘               │
+│                                  │                                          │
+│               ┌──────────────────▼─────────────────────┐                    │
+│               │  7 MCP Servers (streamable-http)        │                    │
+│               │  bash start_servers.sh                  │                    │
+│               └──────────────────┬─────────────────────┘                    │
+│                                  │                                          │
+│  ┌───────────────────────────────▼───────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  filesystem.py :8001 (12 tools)  │  git_tools.py :8002 (11 tools)     │  │
+│  │   read/write/edit/find/search    │   status/diff/log/blame/branch     │  │
+│  │   execute_command                │   add/commit/stash/checkout        │  │
+│  │                                  │                                    │  │
+│  │  code_intel.py :8003 (5 tools)   │  memory_store.py :8004 (11 t.)    │  │
+│  │   AST analysis, symbols          │   save/get/search/scratchpad       │  │
+│  │   project_overview, dep graph    │   qa_experience_*                  │  │
+│  │                                  │                                    │  │
+│  │  code_review.py :8005 (8 tools)  │  code_refactor.py :8006 (4 t.)    │  │
+│  │   review_project/file/function   │   auto_refactor                   │  │
+│  │   health_score, find_complex     │   ydiff_files/commit/changes       │  │
+│  │                                  │                                    │  │
+│  │  multi_project.py :8007 (15 tools)                                    │  │
+│  │   workspace_add/search/edit/commit — cross-repo coordination          │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### MCP Server Responsibilities
@@ -345,6 +355,7 @@ Claude Code Core Capability Coverage:
 .
 ├── start_servers.sh           # Start/stop/status/restart all 7 MCP servers
 ├── web_app.py                 # DeepAgent web interface (FastAPI + WebSocket)
+├── tui_app.py                 # Claude Code-style TUI (Rich + prompt_toolkit)
 ├── subagents.yaml             # 4 subagent definitions for DeepAgent
 ├── static/
 │   └── index.html             # Hacker-style terminal UI
@@ -379,7 +390,7 @@ For VS Code mode:
 - **VS Code** 1.99+
 - **GitHub Copilot Chat** extension
 
-For Web App mode:
+For Web App / TUI mode:
 - **OPENROUTER_API_KEY** (or OPENAI_API_KEY)
 
 ```bash
@@ -428,7 +439,7 @@ python multi_project.py   # Port 8007
 
 > **Note:** If you have a local HTTP proxy (e.g., on port 7890), set `NO_PROXY=localhost,127.0.0.1` before starting clients to avoid 502 errors.
 
-Once servers are running, you can use them with **either** VS Code or the Web App — or both simultaneously.
+Once servers are running, you can use them with **any combination** of VS Code, Web App, and TUI — all three can run simultaneously.
 
 <a id="vs-code-setup"></a>
 ### Step 2 (VS Code): Register MCP Servers
@@ -520,6 +531,25 @@ uv run python web_app.py
 ```
 
 The web app connects to all 7 MCP servers, loads 66+ tools, creates a DeepAgent with 4 subagents, and serves a WebSocket-based chat UI with real-time tool execution streaming.
+
+### Step 2 (TUI): Start Claude Code-style Terminal Interface
+
+```bash
+# Set your API key
+export OPENROUTER_API_KEY=your-key
+
+# Start the TUI
+uv run python tui_app.py
+```
+
+The TUI provides the same DeepAgent backend as the web app but with a terminal-native interface:
+- **Streaming output** with Rich Markdown rendering and syntax highlighting
+- **Tool call display** in Claude Code style: `⏵ Read file.py` → `✓ Read`
+- **Command history** with ↑/↓ arrow keys
+- **Slash commands**: `/help`, `/clear`, `/status`, `/quit`
+- **Interrupt support**: Ctrl+C to cancel current operation
+
+Ideal for SSH sessions, headless servers, or developers who prefer staying in the terminal.
 
 ## Full Tool List
 

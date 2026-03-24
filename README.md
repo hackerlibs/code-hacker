@@ -325,27 +325,27 @@ Open `settings.json` (`Ctrl+Shift+P` → `Preferences: Open User Settings (JSON)
     "servers": {
       "filesystem-command": {
         "type": "sse",
-        "url": "http://localhost:8001/sse"
+        "url": "http://localhost:8001/mcp"
       },
       "git-tools": {
         "type": "sse",
-        "url": "http://localhost:8002/sse"
+        "url": "http://localhost:8002/mcp"
       },
       "code-intel": {
         "type": "sse",
-        "url": "http://localhost:8003/sse"
+        "url": "http://localhost:8003/mcp"
       },
       "memory-store": {
         "type": "sse",
-        "url": "http://localhost:8004/sse"
+        "url": "http://localhost:8004/mcp"
       },
       "code-review": {
         "type": "sse",
-        "url": "http://localhost:8005/sse"
+        "url": "http://localhost:8005/mcp"
       },
       "code-refactor": {
         "type": "sse",
-        "url": "http://localhost:8006/sse"
+        "url": "http://localhost:8006/mcp"
       }
     }
   }

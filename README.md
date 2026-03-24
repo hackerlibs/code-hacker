@@ -59,13 +59,59 @@ pkg install the_silver_searcher
 - **命令黑名单**：屏蔽 `rm`、`del`、`format`、`mkfs`、`dd`、`shutdown`、`reboot` 等危险命令
 - **命令超时**：默认 30 秒超时
 
-## 使用方式
+## 安装与配置
+
+### 第一步：安装 Python 依赖
+
+```bash
+pip install mcp
+```
+
+### 第二步：在 VS Code 设置中注册 MCP 服务器
+
+MCP 服务器**不会自动启动**，需要手动添加到 VS Code 的用户设置中。
+
+打开 VS Code 设置（`Ctrl+,`），搜索 `mcp`，或直接编辑 `settings.json`（`Ctrl+Shift+P` → `Preferences: Open User Settings (JSON)`），添加：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem-command": {
+        "type": "stdio",
+        "command": "python",
+        "args": ["/你的绝对路径/filesystem.py"]
+      }
+    }
+  }
+}
+```
+
+> **注意**：`args` 中必须填 `filesystem.py` 的**绝对路径**。
+
+添加后，VS Code 会在底部状态栏显示 MCP 服务器状态，点击可查看是否已连接。
+
+### 第三步：放置 Agent 定义文件
+
+将 `code-hacker.chatmode.md` 放在项目根目录（已包含在本仓库中）。
+
+该文件中 `tools` 字段使用 `filesystem-command/*` 通配符引用 MCP 服务器提供的所有工具：
+
+```yaml
+tools: ["filesystem-command/*"]
+```
+
+### 第四步：使用 Agent
 
 1. 在 VS Code 中打开本项目
-2. VS Code 会自动检测 `.vscode/mcp.json` 并启动 MCP 服务器
-3. 打开 Copilot Chat 面板（`Ctrl+Shift+I`）
-4. 在顶部模式选择器中切换到 **Code Hacker**
-5. 开始对话，Agent 会自动调用文件系统工具完成任务
+2. 打开 Copilot Chat 面板（`Ctrl+Shift+I`）
+3. 在聊天面板顶部的**模式选择器**中，选择 **Code Hacker**
+4. 开始对话，Agent 会自动调用文件系统工具完成任务
+
+> 如果模式选择器中没有出现 Code Hacker，检查：
+> - VS Code 版本 >= 1.99
+> - `code-hacker.chatmode.md` 在当前打开的工作区根目录下
+> - MCP 服务器状态是否为"已连接"（底部状态栏）
 
 ### 示例对话
 

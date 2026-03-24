@@ -21,6 +21,10 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0.0",

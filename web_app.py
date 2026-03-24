@@ -2,8 +2,8 @@
 """
 Code Hack AI Expert - Multi-Project Web Interface
 
-Connects to 7 MCP servers (filesystem, git, code-intel, memory, code-review,
-code-refactor, multi-project) and provides a unified AI code expert web chat.
+Connects to 7 MCP servers via streamable-http, creates a DeepAgent with
+subagents for specialized tasks, and serves a WebSocket chat UI.
 
 Usage:
     # 1. Start all MCP servers:
@@ -29,17 +29,19 @@ os.environ.setdefault("no_proxy", "localhost,127.0.0.1")
 
 warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality")
 
+import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from langchain_mcp_adapters.tools import load_mcp_tools
+
+from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
 
 EXPERT_DIR = Path(__file__).parent
 
@@ -78,10 +80,55 @@ def get_llm_model() -> ChatOpenAI:
     )
 
 
-SYSTEM_PROMPT = """\
-You are **Code Hack AI Expert**, a full-featured multi-project programming agent.
+def get_subagent_model() -> ChatOpenAI:
+    """Get the LLM model for subagents (cheaper/faster model)."""
+    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    base_url = os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    model_name = os.environ.get("LLM_SUBAGENT_MODEL", "anthropic/claude-haiku-4-5-20251001")
 
-## Your Toolset (7 MCP Servers)
+    return ChatOpenAI(
+        model=model_name,
+        base_url=base_url,
+        api_key=api_key,
+        max_tokens=8000,
+    )
+
+
+def load_subagents(config_path: Path, mcp_tools: list) -> list:
+    """Load subagent definitions from YAML and wire up their tools."""
+    if not config_path.exists():
+        print(f"  (no subagents.yaml found, skipping subagents)")
+        return []
+
+    tool_lookup = {t.name: t for t in mcp_tools}
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    subagent_model = get_subagent_model()
+
+    subagents = []
+    for name, spec in config.items():
+        subagent = {
+            "name": name,
+            "description": spec["description"],
+            "system_prompt": spec["system_prompt"],
+            "model": subagent_model,
+        }
+        if "tools" in spec:
+            subagent["tools"] = [
+                tool_lookup[t] for t in spec["tools"]
+                if t in tool_lookup
+            ]
+        subagents.append(subagent)
+
+    return subagents
+
+
+SYSTEM_PROMPT = """\
+You are the **Code Hack AI Expert** — a full-featured multi-project programming agent.
+
+## Your Toolset (7 MCP Servers, 66+ tools)
 
 ### 1. Filesystem (filesystem-command)
 - `read_file` / `read_file_lines` / `write_file` / `append_file` / `edit_file`
@@ -149,8 +196,9 @@ You are **Code Hack AI Expert**, a full-featured multi-project programming agent
 - Use `workspace_search` for cross-project impact analysis
 - Use `workspace_commit` for synchronized commits
 
-### QA Experience
-- After solving a problem, offer to record it with `qa_experience_save`
+### QA Experience Recording
+- After successfully solving a problem, proactively ask the user to record it
+- Use `qa_experience_save` to capture the experiment record
 - Before tackling new problems, check `qa_experience_search` for prior patterns
 
 ### Safety First
@@ -160,7 +208,7 @@ You are **Code Hack AI Expert**, a full-featured multi-project programming agent
 - Never modify files you haven't read
 
 ## Style
-- Concise and direct
+- Concise and direct, no fluff
 - Search code before making suggestions
 - Think like an experienced senior engineer
 - Proactively identify potential issues without over-engineering
@@ -168,7 +216,7 @@ You are **Code Hack AI Expert**, a full-featured multi-project programming agent
 
 
 async def init_agent():
-    """Initialize the agent by connecting to all MCP servers."""
+    """Initialize the DeepAgent by connecting to all MCP servers."""
     global agent, _exit_stack
 
     _exit_stack = AsyncExitStack()
@@ -200,12 +248,19 @@ async def init_agent():
 
     print(f"\n  Total: {len(all_tools)} tools loaded from {len(MCP_SERVERS)} servers")
 
-    memory = MemorySaver()
-    agent = create_react_agent(
+    # Load subagent definitions
+    subagents = load_subagents(EXPERT_DIR / "subagents.yaml", all_tools)
+    if subagents:
+        print(f"  Subagents: {', '.join(s['name'] for s in subagents)}")
+
+    # Create DeepAgent with all tools, subagents, memory, and filesystem backend
+    agent = create_deep_agent(
         model=model,
         tools=all_tools,
-        prompt=SYSTEM_PROMPT,
-        checkpointer=memory,
+        subagents=subagents,
+        memory=["./AGENTS.md"],
+        backend=FilesystemBackend(root_dir=EXPERT_DIR),
+        system_prompt=SYSTEM_PROMPT,
     )
 
     return agent
@@ -237,107 +292,111 @@ def get_content_as_string(content) -> str:
 
 def get_tool_display(name: str, args: dict) -> tuple:
     """Get icon and status text for a tool call."""
+    # Subagent task delegation
+    if name == "task":
+        desc = args.get("description", "processing...")[:50]
+        return "🔀", f"委派任务: {desc}..."
+
     # Filesystem
-    if name.endswith(":read_file") or name.endswith(":read_file_lines"):
+    if name in ("read_file", "read_file_lines"):
         return "📖", f"读取: {args.get('file_path', 'file')}"
-    if name.endswith(":write_file"):
+    if name == "write_file":
         return "✏️", f"写入: {args.get('file_path', 'file')}"
-    if name.endswith(":edit_file"):
+    if name == "edit_file":
         return "✏️", f"编辑: {args.get('file_path', 'file')}"
-    if name.endswith(":append_file"):
+    if name == "append_file":
         return "✏️", f"追加: {args.get('file_path', 'file')}"
-    if name.endswith(":list_directory"):
+    if name == "list_directory":
         return "📁", f"列出: {args.get('directory_path', '.')}"
-    if name.endswith(":execute_command"):
+    if name == "execute_command":
         return "⚡", f"执行: {args.get('command', '')[:50]}"
-    if name.endswith(":search_files_ag"):
+    if name == "search_files_ag":
         return "🔍", f"搜索: {args.get('pattern', '')[:40]}"
-    if name.endswith(":find_files"):
+    if name == "find_files":
         return "🔍", f"查找: {args.get('pattern', '*')}"
 
     # Git
-    if "git-tools:" in name:
-        git_name = name.split(":")[-1]
-        return "📜", f"Git {git_name}"
+    if name.startswith("git_"):
+        return "📜", f"Git {name}"
 
     # Code Intel
-    if name.endswith(":analyze_python_file"):
+    if name == "analyze_python_file":
         return "🧬", f"分析: {args.get('file_path', '')}"
-    if name.endswith(":project_overview"):
+    if name == "project_overview":
         return "🗺️", f"项目概览: {args.get('directory', '.')}"
-    if name.endswith(":find_references"):
+    if name == "find_references":
         return "🔗", f"引用: {args.get('symbol', '')}"
-    if name.endswith(":dependency_graph"):
+    if name == "dependency_graph":
         return "🕸️", f"依赖: {args.get('file_path', '')}"
-    if name.endswith(":extract_symbols"):
+    if name == "extract_symbols":
         return "🧬", f"符号: {args.get('file_path', '')}"
 
     # Memory
-    if name.endswith(":memory_save"):
+    if name == "memory_save":
         return "💾", f"记忆: {args.get('key', '')}"
-    if name.endswith(":memory_get") or name.endswith(":memory_search"):
+    if name in ("memory_get", "memory_search"):
         return "🧠", f"回忆: {args.get('key', args.get('query', ''))}"
-    if name.endswith(":memory_list"):
+    if name == "memory_list":
         return "🧠", "列出记忆"
-    if name.endswith(":scratchpad_write") or name.endswith(":scratchpad_append"):
+    if name in ("scratchpad_write", "scratchpad_append"):
         return "📝", "写草稿"
-    if name.endswith(":scratchpad_read"):
+    if name == "scratchpad_read":
         return "📝", "读草稿"
-    if name.endswith(":qa_experience_save"):
+    if name == "qa_experience_save":
         return "🎓", f"记录经验: {args.get('title', '')}"
-    if name.endswith(":qa_experience_search"):
+    if name == "qa_experience_search":
         return "🎓", f"搜索经验: {args.get('query', '')}"
 
     # Code Review
-    if name.endswith(":review_project"):
+    if name == "review_project":
         return "🔬", f"审查项目: {args.get('project_dir', '')}"
-    if name.endswith(":review_file"):
+    if name == "review_file":
         return "🔬", f"审查文件: {args.get('file_path', '')}"
-    if name.endswith(":review_function"):
+    if name == "review_function":
         return "🔬", f"审查函数: {args.get('function_name', '')}"
-    if name.endswith(":health_score"):
+    if name == "health_score":
         return "💯", "健康评分"
-    if name.endswith(":find_long_functions"):
+    if name == "find_long_functions":
         return "📏", "超长函数"
-    if name.endswith(":find_complex_functions"):
+    if name == "find_complex_functions":
         return "🌀", "高复杂度函数"
-    if name.endswith(":suggest_reorg"):
+    if name == "suggest_reorg":
         return "📦", "重组建议"
-    if name.endswith(":review_diff_text"):
+    if name == "review_diff_text":
         return "🔬", "代码对比审查"
 
     # Code Refactor
-    if name.endswith(":auto_refactor"):
+    if name == "auto_refactor":
         return "🔧", f"自动重构: {args.get('project_dir', '')}"
-    if name.endswith(":ydiff_files"):
+    if name == "ydiff_files":
         return "📊", "结构化 Diff"
-    if name.endswith(":ydiff_commit"):
+    if name == "ydiff_commit":
         return "📊", f"Commit Diff: {args.get('commit_id', '')}"
-    if name.endswith(":ydiff_git_changes"):
+    if name == "ydiff_git_changes":
         return "📊", "Git 变更 Diff"
 
     # Multi-Project
-    if name.endswith(":workspace_add"):
+    if name == "workspace_add":
         return "➕", f"注册项目: {args.get('alias', args.get('project_path', ''))}"
-    if name.endswith(":workspace_list"):
+    if name == "workspace_list":
         return "📋", "工作区列表"
-    if name.endswith(":workspace_search"):
+    if name == "workspace_search":
         return "🔍", f"跨项目搜索: {args.get('pattern', '')[:40]}"
-    if name.endswith(":workspace_find_files"):
+    if name == "workspace_find_files":
         return "🔍", f"跨项目查找: {args.get('pattern', '')}"
-    if name.endswith(":workspace_find_dependencies"):
+    if name == "workspace_find_dependencies":
         return "🕸️", f"跨项目依赖: {args.get('symbol', '')}"
-    if name.endswith(":workspace_read_file"):
+    if name == "workspace_read_file":
         return "📖", f"[{args.get('project', '')}] {args.get('file_path', '')}"
-    if name.endswith(":workspace_edit_file"):
+    if name == "workspace_edit_file":
         return "✏️", f"[{args.get('project', '')}] {args.get('file_path', '')}"
-    if name.endswith(":workspace_git_status"):
+    if name == "workspace_git_status":
         return "📜", "跨项目 Git 状态"
-    if name.endswith(":workspace_commit"):
+    if name == "workspace_commit":
         return "📜", f"协同提交: {args.get('message', '')[:40]}"
-    if name.endswith(":workspace_overview"):
+    if name == "workspace_overview":
         return "🗺️", "工作区概览"
-    if name.endswith(":workspace_exec"):
+    if name == "workspace_exec":
         return "⚡", f"[{args.get('project', '')}] {args.get('command', '')[:40]}"
 
     return "🔧", name
@@ -348,7 +407,7 @@ def get_tool_display(name: str, args: dict) -> tuple:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print()
-    print("=== Code Hack AI Expert ===")
+    print("=== Code Hack AI Expert (DeepAgent) ===")
     print()
     await init_agent()
     print()
@@ -456,12 +515,14 @@ if __name__ == "__main__":
 
     model_name = os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4-5-20250514")
     base_url = os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    subagent_model = os.environ.get("LLM_SUBAGENT_MODEL", "anthropic/claude-haiku-4-5-20251001")
 
     print()
     print("=== Code Hack AI Expert - Web Interface ===")
-    print(f"  Model:    {model_name}")
-    print(f"  Base URL: {base_url}")
-    print(f"  Servers:  {len(MCP_SERVERS)} MCP servers")
+    print(f"  Model:         {model_name}")
+    print(f"  Subagent:      {subagent_model}")
+    print(f"  Base URL:      {base_url}")
+    print(f"  MCP Servers:   {len(MCP_SERVERS)}")
     print()
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

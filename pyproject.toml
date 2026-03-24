@@ -5,11 +5,13 @@ description = "Code Hack AI Expert — multi-project programming agent with 7 MC
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "deepagents>=0.1.0",
     "langchain>=0.3.0",
     "langchain-openai>=0.3.0",
     "langchain-mcp-adapters>=0.1.0",
     "langgraph>=0.2.0",
     "mcp>=1.0.0",
+    "pyyaml>=6.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
     "websockets>=12.0",

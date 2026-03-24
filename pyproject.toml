@@ -1,0 +1,26 @@
+[project]
+name = "code-hacker"
+version = "0.1.0"
+description = "Code Hack AI Expert — multi-project programming agent with 7 MCP servers"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-mcp-adapters>=0.1.0",
+    "langgraph>=0.2.0",
+    "mcp>=1.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "websockets>=12.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]

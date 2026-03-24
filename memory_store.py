@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("memory-store")
+mcp = FastMCP(name="memory-store", host='localhost', port=8004)
 
 # Memory is stored as JSON files in a .agent-memory directory relative to the working directory
 MEMORY_DIR = Path.cwd() / ".agent-memory"
@@ -215,4 +215,4 @@ async def scratchpad_append(content: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", host="0.0.0.0", port=8004)
+    mcp.run(transport="streamable-http")

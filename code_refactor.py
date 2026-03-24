@@ -19,7 +19,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 # ─── 初始化 MCP Server ─────────────────────────────────────────────────────
-mcp = FastMCP("code-refactor")
+mcp = FastMCP(name="code-refactor", host='localhost', port=8006)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -266,4 +266,4 @@ async def ydiff_git_changes(project_dir: str, base: str = "HEAD~1", output_path:
 
 # ─── 入口 ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    mcp.run(transport="sse", host="0.0.0.0", port=8006)
+    mcp.run(transport="streamable-http")

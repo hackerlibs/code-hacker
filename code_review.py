@@ -20,7 +20,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 # ─── 初始化 MCP Server ─────────────────────────────────────────────────────
-mcp = FastMCP("code-review")
+mcp = FastMCP(name="code-review", host='localhost', port=8005)
 
 # ─── 默认阈值 ──────────────────────────────────────────────────────────────
 DEFAULT_THRESHOLDS = {
@@ -775,4 +775,4 @@ async def review_diff_text(old_code: str, new_code: str) -> str:
 
 # ─── 入口 ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    mcp.run(transport="sse", host="0.0.0.0", port=8005)
+    mcp.run(transport="streamable-http")

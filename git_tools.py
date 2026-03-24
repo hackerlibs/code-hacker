@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("git-tools")
+mcp = FastMCP(name="git-tools", host='localhost', port=8002)
 
 
 def run_git(args: list[str], cwd: str = ".", timeout: int = 30) -> dict:
@@ -210,4 +210,4 @@ async def git_blame(repo_path: str = ".", file_path: str = "", start_line: int =
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", host="0.0.0.0", port=8002)
+    mcp.run(transport="streamable-http")

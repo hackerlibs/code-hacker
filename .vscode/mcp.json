@@ -4,6 +4,21 @@
       "type": "stdio",
       "command": "python",
       "args": ["${workspaceFolder}/filesystem.py"]
+    },
+    "git-tools": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${workspaceFolder}/git_tools.py"]
+    },
+    "code-intel": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${workspaceFolder}/code_intel.py"]
+    },
+    "memory-store": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${workspaceFolder}/memory_store.py"]
     }
   }
 }

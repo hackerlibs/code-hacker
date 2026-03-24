@@ -297,6 +297,115 @@ async def execute_command(command: str, working_directory: str = ".", timeout: i
     return "\n".join(output_lines)
 
 @mcp.tool()
+async def edit_file(file_path: str, old_string: str, new_string: str) -> str:
+    """Perform a precise string replacement in a file. Similar to Claude Code's Edit tool.
+    Replaces the first occurrence of old_string with new_string.
+
+    Args:
+        file_path: Path to the file to edit
+        old_string: The exact text to find and replace
+        new_string: The replacement text
+    """
+    if not is_safe_path(file_path):
+        return f"Error: Unsafe file path: {file_path}"
+    if not is_allowed_file(file_path):
+        return f"Error: File type not allowed: {Path(file_path).suffix}"
+
+    path = Path(file_path)
+    if not path.exists():
+        return f"Error: File does not exist: {file_path}"
+
+    content = await read_file_content(str(path))
+    if content is None:
+        return f"Error: Unable to read file: {file_path}"
+
+    count = content.count(old_string)
+    if count == 0:
+        return f"Error: old_string not found in {file_path}"
+    if count > 1:
+        return f"Error: old_string found {count} times in {file_path}. Provide more context to make it unique."
+
+    new_content = content.replace(old_string, new_string, 1)
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        return f"Successfully edited {file_path}: replaced 1 occurrence."
+    except Exception as e:
+        return f"Error writing file: {str(e)}"
+
+
+@mcp.tool()
+async def read_file_lines(file_path: str, start_line: int = 1, end_line: int = 0) -> str:
+    """Read specific line range from a file. Useful for large files.
+
+    Args:
+        file_path: Path to the file to read
+        start_line: Starting line number (1-based, default: 1)
+        end_line: Ending line number (0 = read to end, default: 0)
+    """
+    if not is_safe_path(file_path):
+        return f"Error: Unsafe file path: {file_path}"
+    if not is_allowed_file(file_path):
+        return f"Error: File type not allowed: {Path(file_path).suffix}"
+
+    path = Path(file_path)
+    if not path.exists():
+        return f"Error: File does not exist: {file_path}"
+
+    content = await read_file_content(str(path))
+    if content is None:
+        return f"Error: Unable to read file: {file_path}"
+
+    lines = content.splitlines(keepends=True)
+    total = len(lines)
+    start = max(1, start_line) - 1
+    end = total if end_line <= 0 else min(end_line, total)
+
+    selected = lines[start:end]
+    numbered = [f"{i + start + 1:>6}\t{line}" for i, line in enumerate(selected)]
+    header = f"File: {file_path} (lines {start+1}-{end} of {total})"
+    return header + "\n" + "".join(numbered)
+
+
+@mcp.tool()
+async def find_files(directory: str = ".", pattern: str = "*", max_depth: int = 5) -> str:
+    """Find files matching a glob pattern recursively. Like the Glob tool in Claude Code.
+
+    Args:
+        directory: Directory to search in (default: current directory)
+        pattern: Glob pattern to match (e.g., '*.py', '**/*.js', 'test_*')
+        max_depth: Maximum directory depth to search (default: 5)
+    """
+    if not is_safe_path(directory):
+        return f"Error: Unsafe path: {directory}"
+
+    path = Path(directory)
+    if not path.exists() or not path.is_dir():
+        return f"Error: Directory does not exist: {directory}"
+
+    try:
+        matches = []
+        for match in sorted(path.rglob(pattern)):
+            # Check depth
+            rel = match.relative_to(path)
+            if len(rel.parts) > max_depth:
+                continue
+            item_type = "FILE" if match.is_file() else "DIR "
+            size = match.stat().st_size if match.is_file() else 0
+            matches.append(f"{item_type} {str(rel):<60} {size:>10,} bytes")
+            if len(matches) >= 500:
+                matches.append("... (truncated at 500 results)")
+                break
+
+        if not matches:
+            return f"No files matching '{pattern}' in {path.absolute()}"
+
+        return f"Found {len(matches)} matches for '{pattern}' in {path.absolute()}:\n" + "\n".join(matches)
+    except Exception as e:
+        return f"Error finding files: {str(e)}"
+
+
+@mcp.tool()
 async def get_current_directory() -> str:
     """Get the current working directory.
     """

@@ -214,5 +214,124 @@ async def scratchpad_append(content: str) -> str:
     return f"Appended to scratchpad ({len(content)} chars added)"
 
 
+@mcp.tool()
+async def qa_experience_save(
+    title: str,
+    problem: str,
+    key_turns: str,
+    resolution: str,
+    pattern: str,
+    tags: str = "",
+) -> str:
+    """Save a successful QA experience as an experiment record. Call this after a problem
+    is successfully resolved through conversation to capture the problem-solving pattern.
+
+    Args:
+        title: Short title for this experience (e.g., 'fix-circular-import', 'debug-async-deadlock')
+        problem: What was the issue / initial symptom
+        key_turns: The key dialogue turns, hypotheses, and reasoning steps that led to the breakthrough
+        resolution: What ultimately fixed it (the solution)
+        pattern: The reusable problem-solving strategy / pattern extracted from this experience
+        tags: Comma-separated tags (e.g., 'python,import,debugging')
+    """
+    _ensure_dir()
+    exp_dir = MEMORY_DIR / "qa_experiments"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)
+    path = exp_dir / f"{safe_title}.json"
+
+    entry = {
+        "title": title,
+        "problem": problem,
+        "key_turns": key_turns,
+        "resolution": resolution,
+        "pattern": pattern,
+        "tags": [t.strip() for t in tags.split(",") if t.strip()],
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    path.write_text(json.dumps(entry, ensure_ascii=False, indent=2))
+    return f"QA experience saved: '{title}' -> {path.name}"
+
+
+@mcp.tool()
+async def qa_experience_search(query: str = "", tag: str = "") -> str:
+    """Search saved QA experiences by keyword or tag. Use this to find prior successful
+    problem-solving patterns before tackling a new problem.
+
+    Args:
+        query: Text to search for in title, problem, resolution, and pattern (default: '' for all)
+        tag: Filter by tag (default: '' for all)
+    """
+    exp_dir = MEMORY_DIR / "qa_experiments"
+    if not exp_dir.exists():
+        return "No QA experiences recorded yet."
+
+    results = []
+    query_lower = query.lower()
+
+    for f in sorted(exp_dir.glob("*.json")):
+        try:
+            entry = json.loads(f.read_text())
+        except Exception:
+            continue
+
+        if tag and tag not in entry.get("tags", []):
+            continue
+        if query_lower:
+            searchable = " ".join([
+                entry.get("title", ""),
+                entry.get("problem", ""),
+                entry.get("resolution", ""),
+                entry.get("pattern", ""),
+            ]).lower()
+            if query_lower not in searchable:
+                continue
+
+        results.append(entry)
+
+    if not results:
+        return "No QA experiences found matching the criteria."
+
+    lines = [f"Found {len(results)} QA experience(s):\n"]
+    for entry in results:
+        lines.append(f"### {entry['title']}  (tags: {', '.join(entry.get('tags', []))})")
+        lines.append(f"  Created: {entry['created_at']}")
+        lines.append(f"  Problem: {entry['problem'][:150]}")
+        lines.append(f"  Pattern: {entry['pattern'][:150]}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def qa_experience_get(title: str) -> str:
+    """Retrieve the full details of a specific QA experience by title.
+
+    Args:
+        title: The title of the QA experience to retrieve
+    """
+    exp_dir = MEMORY_DIR / "qa_experiments"
+    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)
+    path = exp_dir / f"{safe_title}.json"
+
+    if not path.exists():
+        return f"QA experience not found: '{title}'"
+    try:
+        entry = json.loads(path.read_text())
+        return (
+            f"# QA Experience: {entry['title']}\n"
+            f"Created: {entry['created_at']}\n"
+            f"Tags: {', '.join(entry.get('tags', []))}\n\n"
+            f"## Problem\n{entry['problem']}\n\n"
+            f"## Key Dialogue Turns\n{entry['key_turns']}\n\n"
+            f"## Resolution\n{entry['resolution']}\n\n"
+            f"## Reusable Pattern\n{entry['pattern']}"
+        )
+    except Exception as e:
+        return f"Error reading QA experience: {e}"
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")

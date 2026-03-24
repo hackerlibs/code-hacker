@@ -2,6 +2,8 @@
 
 A VS Code custom Chat Agent rivaling Claude Code, built on **6 MCP Servers** + VS Code built-in tools. Covers file operations, Git, code analysis, persistent memory, **code review**, **auto-refactoring & structural diff**, and web access. A total of **48 tools** that fully replicate Claude Code's core capabilities and surpass it in the code review dimension.
 
+![](./demo.png)
+
 ---
 
 ## Architecture

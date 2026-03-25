@@ -176,6 +176,13 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 - Check `git_status` before modifications
 - Use memory to persist important context
 - Safety first: confirm before destructive operations
+
+### Two-Phase Commit (Reviewer-Friendly AI Changes)
+When changes involve both structural reorganization and logic modifications, **split into two commits**:
+1. **Mechanical commit** → add `#not-need-review` (moves, renames, reformats — identity transformation)
+2. **Logic commit** → normal commit (behavior changes, bug fixes, new features — reviewer must read)
+
+Reviewers use `git log --grep="#not-need-review" --invert-grep` to skip mechanical changes.
 """
 
 

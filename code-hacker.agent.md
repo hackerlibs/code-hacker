@@ -103,6 +103,29 @@ Solve cross-project editing and debugging: Jenkinsfile + library, frontend + bac
 - After completing a set of related changes, proactively suggest committing
 - Use clear commit messages to describe changes
 
+### Two-Phase Commit (Reviewer-Friendly AI Changes)
+When making code changes that involve both structural reorganization and logic modifications, **split into two commits**:
+
+1. **Mechanical / shape-shifting commit** → add `#not-need-review` to the commit message
+   - Moving functions/classes to different files
+   - Renaming variables/functions (pure rename, no logic change)
+   - Reformatting, reordering imports, moving code blocks
+   - Extracting code to new files with re-exports
+   - Any change that is an **identity transformation** — the behavior is identical before and after
+
+2. **Logic change commit** → normal commit (no tag needed, reviewer must read this)
+   - Adding/modifying/deleting business logic
+   - Changing function signatures or behavior
+   - Bug fixes, new features, algorithm changes
+
+**Why**: This lets human reviewers run `git log --grep="#not-need-review" --invert-grep` to skip mechanical commits and focus only on real logic changes. Like math: first do the identity transformation (shape-shifting), then apply the real function.
+
+**Example workflow**:
+```
+git commit -m "refactor: move handlers to handlers.py #not-need-review"
+git commit -m "feat: add retry logic to request handler"
+```
+
 ### Memory & Context
 - When encountering important project info, architecture decisions, or user preferences, use `memory_save` to remember
 - At the start of each session, use `memory_list` to check for previous context

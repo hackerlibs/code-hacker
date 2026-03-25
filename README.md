@@ -121,6 +121,7 @@ Core ideas:
 4. **Security Sandbox** — Each server has independent security policies (path checks, command blocklists, file whitelists)
 5. **Surpass, Not Imitate** — Code review and structural diff are capabilities Claude Code lacks, based on AST-level analysis and the ydiff algorithm
 6. **Multi-Project First** — Real development involves multiple repos (frontend+backend, app+library, service+pipeline). The workspace system treats multi-repo as a first-class concept
+7. **Two-Phase Commit** — AI code changes are split into mechanical commits (`#not-need-review`) and logic commits, so human reviewers can skip identity transformations and focus on real changes
 
 ### System Architecture Diagram
 
@@ -237,6 +238,36 @@ User: "Review this AI-generated code for me"
   ② review_function(...)                   → Deep analysis of problematic functions
   ③ edit_file(...)                         → Fix issues
 ```
+
+### Two-Phase Commit: Reviewer-Friendly AI Changes
+
+A core principle across all three frontends: when AI makes code changes, **separate mechanical changes from logic changes** into distinct commits.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  AI makes changes → split into two commits                      │
+│                                                                 │
+│  Commit 1: "refactor: move to handlers.py #not-need-review"    │
+│    ├─ Move functions/classes between files                      │
+│    ├─ Rename variables (pure rename)                            │
+│    ├─ Reformat, reorder imports                                 │
+│    └─ Identity transformation — behavior unchanged              │
+│                                                                 │
+│  Commit 2: "feat: add retry logic to handler"                  │
+│    ├─ Add/modify business logic                                 │
+│    ├─ Change function behavior                                  │
+│    └─ Bug fixes, new features                                   │
+│                                                                 │
+│  Human reviewer:                                                │
+│    git log --grep="#not-need-review" --invert-grep  ← 只看这些  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Like math: first do the identity transformation (shape-shifting), then apply the real function. The `#not-need-review` commits are provably equivalent — reviewer can skip them. The remaining commits are where the real logic lives.
+
+This applies to:
+- `auto_refactor`: automatically creates Phase 1 (`#not-need-review`) + Phase 2 (`#need-review`) commits
+- All AI code modifications via VS Code agent, web app, or TUI — the system prompt instructs the AI to follow this pattern
 
 ### Security Architecture
 

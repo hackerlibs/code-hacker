@@ -23,6 +23,14 @@
     "code-refactor": {
       "type": "sse",
       "url": "http://localhost:8006/mcp"
+    },
+    "multi-project": {
+      "type": "sse",
+      "url": "http://localhost:8007/mcp"
+    },
+    "mermaid-chart": {
+      "type": "sse",
+      "url": "http://localhost:8008/mcp"
     }
   }
 }

@@ -66,6 +66,7 @@ MCP_SERVERS = {
     "code-review":        "http://localhost:8005/mcp",
     "code-refactor":      "http://localhost:8006/mcp",
     "multi-project":      "http://localhost:8007/mcp",
+    "mermaid-chart":      "http://localhost:8008/mcp",
 }
 
 THEME = Theme({
@@ -128,7 +129,7 @@ def load_subagents(config_path: Path, mcp_tools: list) -> list:
 SYSTEM_PROMPT = """\
 You are the **Code Hack AI Expert** — a full-featured multi-project programming agent.
 
-## Your Toolset (7 MCP Servers, 66+ tools)
+## Your Toolset (8 MCP Servers, 71+ tools)
 
 ### 1. Filesystem (filesystem-command)
 - `read_file` / `read_file_lines` / `write_file` / `append_file` / `edit_file`
@@ -155,6 +156,12 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 
 ### 6. Code Refactoring (code-refactor)
 - `auto_refactor` / `ydiff_files` / `ydiff_commit` / `ydiff_git_changes`
+
+### 8. Mermaid Chart (mermaid-chart)
+- `render_mermaid` — Render Mermaid code to interactive HTML and open in browser
+- `flowchart` — Generate flowcharts from structured node data
+- `sequence_diagram` — Generate sequence diagrams from interaction data
+- `list_charts` / `open_chart` — List and open generated chart files
 
 ### 7. Multi-Project Workspace (multi-project)
 - `workspace_add` / `workspace_remove` / `workspace_list` / `workspace_overview`
@@ -248,6 +255,12 @@ TOOL_ICONS = {
     "workspace_git_log": ("WSGit", "green"),
     "workspace_commit": ("WSCommit", "yellow"),
     "workspace_exec": ("WSExec", "magenta"),
+    # Mermaid Chart
+    "render_mermaid": ("Chart", "cyan"),
+    "flowchart": ("Flow", "cyan"),
+    "sequence_diagram": ("Seq", "cyan"),
+    "list_charts": ("Charts", "cyan"),
+    "open_chart": ("Open", "cyan"),
     # Subagent
     "task": ("Agent", "bright_magenta"),
 }
@@ -293,6 +306,10 @@ def format_tool_call(name: str, args: dict) -> Text:
         detail = f"[{args.get('project', '')}] {args.get('file_path', '')}"
     elif name == "workspace_commit":
         detail = args.get("message", "")[:50]
+    elif name in ("render_mermaid", "flowchart", "sequence_diagram"):
+        detail = args.get("title", "")
+    elif name == "open_chart":
+        detail = args.get("file_path", "")
     elif name == "auto_refactor":
         detail = args.get("project_dir", "")
     elif name.startswith("ydiff_"):
@@ -357,7 +374,7 @@ class CodeHackTUI:
         banner.append("            CODE::HACK  AI Expert  —  TUI Mode              ", style="bold green")
         banner.append("║\n", style="green")
         banner.append("║", style="green")
-        banner.append("     7 MCP Servers  ·  66+ Tools  ·  4 Subagents            ", style="dim green")
+        banner.append("     8 MCP Servers  ·  71+ Tools  ·  4 Subagents            ", style="dim green")
         banner.append("║\n", style="green")
         banner.append("╚══════════════════════════════════════════════════════════════╝", style="green")
         console.print(banner)

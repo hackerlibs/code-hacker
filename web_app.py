@@ -58,6 +58,7 @@ MCP_SERVERS = {
     "code-review":        "http://localhost:8005/mcp",
     "code-refactor":      "http://localhost:8006/mcp",
     "multi-project":      "http://localhost:8007/mcp",
+    "mermaid-chart":      "http://localhost:8008/mcp",
 }
 
 
@@ -128,7 +129,7 @@ def load_subagents(config_path: Path, mcp_tools: list) -> list:
 SYSTEM_PROMPT = """\
 You are the **Code Hack AI Expert** — a full-featured multi-project programming agent.
 
-## Your Toolset (7 MCP Servers, 66+ tools)
+## Your Toolset (8 MCP Servers, 71+ tools)
 
 ### 1. Filesystem (filesystem-command)
 - `read_file` / `read_file_lines` / `write_file` / `append_file` / `edit_file`
@@ -160,6 +161,12 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 ### 6. Code Refactoring & Structural Diff (code-refactor)
 - `auto_refactor` — Auto refactoring: split long functions and large files
 - `ydiff_files` / `ydiff_commit` / `ydiff_git_changes` — Structural AST-level diff
+
+### 8. Mermaid Chart (mermaid-chart)
+- `render_mermaid` — Render Mermaid code to interactive HTML and open in browser
+- `flowchart` — Generate flowcharts from structured node data
+- `sequence_diagram` — Generate sequence diagrams from interaction data
+- `list_charts` / `open_chart` — List and open generated chart files
 
 ### 7. Multi-Project Workspace (multi-project)
 - `workspace_add` / `workspace_remove` / `workspace_list` / `workspace_overview`
@@ -375,6 +382,18 @@ def get_tool_display(name: str, args: dict) -> tuple:
     if name == "ydiff_git_changes":
         return "📊", "Git 变更 Diff"
 
+    # Mermaid Chart
+    if name == "render_mermaid":
+        return "📊", f"渲染图表: {args.get('title', 'Mermaid Chart')}"
+    if name == "flowchart":
+        return "📊", f"流程图: {args.get('title', 'Flowchart')}"
+    if name == "sequence_diagram":
+        return "📊", f"时序图: {args.get('title', 'Sequence Diagram')}"
+    if name == "list_charts":
+        return "📋", "列出图表"
+    if name == "open_chart":
+        return "🌐", f"打开图表: {args.get('file_path', '')}"
+
     # Multi-Project
     if name == "workspace_add":
         return "➕", f"注册项目: {args.get('alias', args.get('project_path', ''))}"
@@ -522,7 +541,7 @@ if __name__ == "__main__":
     print(f"  Model:         {model_name}")
     print(f"  Subagent:      {subagent_model}")
     print(f"  Base URL:      {base_url}")
-    print(f"  MCP Servers:   {len(MCP_SERVERS)}")
+    print(f"  MCP Servers:   {len(MCP_SERVERS)} (including mermaid-chart)")
     print()
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

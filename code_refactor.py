@@ -26,21 +26,48 @@ mcp = FastMCP(name="code-refactor", host='localhost', port=8006)
 #  MCP Tools — 自动重构
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _git_commit(project_dir: str, message: str) -> tuple[bool, str]:
+    """在项目目录执行 git add -A && git commit。返回 (成功, 输出信息)。"""
+    try:
+        subprocess.run(
+            ["git", "add", "-A"], cwd=project_dir,
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        result = subprocess.run(
+            ["git", "commit", "-m", message], cwd=project_dir,
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return True, result.stdout.strip()
+        # nothing to commit is not an error
+        if "nothing to commit" in result.stdout:
+            return True, "nothing to commit"
+        return False, result.stderr.strip()
+    except Exception as e:
+        return False, str(e)
+
+
 @mcp.tool()
 async def auto_refactor(
     project_dir: str,
     apply: bool = False,
     backup: bool = True,
+    auto_commit: bool = True,
     max_func_lines: int = 30,
     max_file_lines: int = 400,
 ) -> str:
     """Automatically refactor a Python project: split long functions and large files.
     Preview mode by default (apply=False). Set apply=True to execute.
 
+    When auto_commit=True (default), creates separate git commits for reviewer-friendly history:
+      1. Mechanical changes (move functions/classes between files) → commit tagged #not-need-review
+      2. Logic changes (split/restructure functions) → commit that needs human review
+
     Args:
         project_dir: Absolute path to the Python project directory
         apply: Execute refactoring (default: False, preview only)
         backup: Backup originals as .bak (default: True)
+        auto_commit: Auto-create separated git commits (default: True)
         max_func_lines: Split functions longer than this (default: 30)
         max_file_lines: Split files longer than this (default: 400)
     """
@@ -80,20 +107,84 @@ async def auto_refactor(
 
     if apply:
         lines.append(f"\n--- 执行结果 ---")
-        for a in file_splits:
-            try:
-                refactor_auto.apply_file_split(a, project_dir, backup=backup)
-                lines.append(f"  [OK] {a.description}")
-            except Exception as e:
-                lines.append(f"  [FAIL] {a.description}: {e}")
-        for a in func_splits:
-            try:
-                refactor_auto.apply_func_split(a, project_dir, backup=backup)
-                lines.append(f"  [OK] {a.description}")
-            except Exception as e:
-                lines.append(f"  [FAIL] {a.description}: {e}")
+
+        # ── Phase 1: 文件拆分 (机械性移动，不改逻辑) ──
+        file_ok_count = 0
+        if file_splits:
+            lines.append(f"\n[Phase 1] 文件拆分 — 移动函数/类到新文件 (机械性变更)")
+            for a in file_splits:
+                try:
+                    refactor_auto.apply_file_split(a, project_dir, backup=backup)
+                    lines.append(f"  [OK] {a.description}")
+                    file_ok_count += 1
+                except Exception as e:
+                    lines.append(f"  [FAIL] {a.description}: {e}")
+
+            if auto_commit and file_ok_count > 0:
+                moved_items = []
+                for a in file_splits:
+                    if a.file_plan:
+                        for mod in a.file_plan.new_modules:
+                            moved_items.append(mod.filename)
+                summary = ", ".join(moved_items[:5])
+                if len(moved_items) > 5:
+                    summary += f" 等 {len(moved_items)} 个模块"
+                commit_msg = (
+                    f"refactor: move code to separate modules #not-need-review\n\n"
+                    f"机械性移动，无逻辑变更，可跳过 review。\n"
+                    f"拆分文件: {summary}"
+                )
+                ok, out = _git_commit(project_dir, commit_msg)
+                if ok:
+                    lines.append(f"  [GIT] ✓ commit #not-need-review: {out[:80]}")
+                else:
+                    lines.append(f"  [GIT] ✗ commit 失败: {out[:120]}")
+
+        # ── Phase 2: 函数拆分 (逻辑变更，需要 review) ──
+        func_ok_count = 0
+        if func_splits:
+            lines.append(f"\n[Phase 2] 函数拆分 — 拆分长函数为子函数 (需要 review)")
+            for a in func_splits:
+                try:
+                    refactor_auto.apply_func_split(a, project_dir, backup=backup)
+                    lines.append(f"  [OK] {a.description}")
+                    func_ok_count += 1
+                except Exception as e:
+                    lines.append(f"  [FAIL] {a.description}: {e}")
+
+            if auto_commit and func_ok_count > 0:
+                split_names = []
+                for a in func_splits:
+                    if a.func_plan:
+                        name = a.func_plan.func_name
+                        if a.func_plan.class_name:
+                            name = f"{a.func_plan.class_name}.{name}"
+                        split_names.append(name)
+                summary = ", ".join(split_names[:5])
+                if len(split_names) > 5:
+                    summary += f" 等 {len(split_names)} 个函数"
+                commit_msg = (
+                    f"refactor: split long functions #need-review\n\n"
+                    f"逻辑性拆分，请 review 提取的子函数是否正确。\n"
+                    f"拆分函数: {summary}"
+                )
+                ok, out = _git_commit(project_dir, commit_msg)
+                if ok:
+                    lines.append(f"  [GIT] ✓ commit #need-review: {out[:80]}")
+                else:
+                    lines.append(f"  [GIT] ✗ commit 失败: {out[:120]}")
+
+        # ── 汇总 ──
+        if auto_commit:
+            lines.append(f"\n--- Git 提交策略 ---")
+            lines.append(f"  #not-need-review: 文件拆分 (纯移动，reviewer 可跳过)")
+            lines.append(f"  #need-review: 函数拆分 (逻辑变更，需要人工审核)")
     else:
         lines.append(f"\n提示: 设置 apply=True 执行重构")
+        if file_splits and func_splits:
+            lines.append(f"  执行时将自动分两个 commit:")
+            lines.append(f"    1. 文件拆分 → #not-need-review (纯移动)")
+            lines.append(f"    2. 函数拆分 → #need-review (逻辑变更)")
 
     return "\n".join(lines)
 

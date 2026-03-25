@@ -97,6 +97,13 @@ NO_PROXY=localhost,127.0.0.1 uv run pytest tests/test_scenarios.py::test_ydiff_c
 
 13 real scenarios covering: ydiff commit review, project health score, git history investigation, Python AST analysis, cross-file search, dependency graph, workspace registration, memory save/recall, Jenkinsfile pipeline generation, complex function detection, git blame, QA experience recording, project overview.
 
+```bash
+# Unit tests for auto_refactor two-phase commit (no MCP servers needed)
+uv run pytest tests/test_refactor_commit.py -v
+```
+
+Tests cover: `_git_commit` helper, two-phase commit separation (`#not-need-review` / `#need-review`), `auto_commit=False` mode, commit tag format, `git log --grep` filtering.
+
 ---
 
 ## Architecture
@@ -199,7 +206,9 @@ User: "Review this project's code quality"
   ③ find_complex_functions(...)               → Locate TOP 5 complex functions
   ④ review_function("app.py", "process_data") → Deep analysis + refactoring suggestions
   ⑤ auto_refactor(..., apply=False)           → Preview auto-refactoring plan
-  ⑥ auto_refactor(..., apply=True)            → Execute refactoring
+  ⑥ auto_refactor(..., apply=True)            → Execute refactoring (two-phase commit)
+     → commit 1: move code to modules  #not-need-review  ← reviewer 可跳过
+     → commit 2: split long functions  #need-review      ← 需要人工审核
   ⑦ ydiff_commit(".", "HEAD")                → Generate structural diff HTML report
 ```
 
@@ -263,6 +272,8 @@ User: "Review this AI-generated code for me"
 │  code_refactor.py:                      │
 │    ├─ auto_refactor defaults to preview │
 │    ├─ .bak backup before refactoring    │
+│    ├─ Two-phase commit: #not-need-review│
+│    │   + #need-review for easy filtering│
 │    └─ ydiff only generates HTML reports │
 │                                         │
 │  multi_project.py:                      │
@@ -308,7 +319,7 @@ User: "Review this AI-generated code for me"
 
 **Code Hacker Exclusive/Superior (10 items):**
 - **Code Review**: `review_project/file/function` quantifies code quality — Claude Code has nothing comparable
-- **Auto Refactoring**: `auto_refactor` auto-splits long functions and large files, with preview + execute modes
+- **Auto Refactoring**: `auto_refactor` auto-splits long functions and large files, with preview + execute modes. **Two-phase commit**: mechanical moves → `#not-need-review`, logic splits → `#need-review`
 - **Structural Diff**: `ydiff_files/commit` AST-based diff that understands code moves/renames — Claude Code only has line-level diff
 - **Change Review**: `review_diff_text` compares old/new code structural changes, quantifies complexity direction
 - **Multi-Project Workspace**: `workspace_*` 15 tools for cross-repo search, edit, git, coordinated commit — Claude Code is locked to a single directory
@@ -372,7 +383,8 @@ Claude Code Core Capability Coverage:
 │   └── refactor_auto.py       # Auto-refactoring engine (function/file splitting)
 ├── tests/
 │   ├── conftest.py            # LLM test fixtures (DeepAgent session, run_agent_query)
-│   └── test_scenarios.py      # 13 real code hack scenarios (LLM-powered pytest)
+│   ├── test_scenarios.py      # 13 real code hack scenarios (LLM-powered pytest)
+│   └── test_refactor_commit.py # Unit tests: two-phase commit strategy (#not-need-review / #need-review)
 ├── code-hacker.agent.md    # VS Code agent definition (system prompt + tool bindings)
 ├── .vscode/
 │   └── mcp.json               # MCP server registration (reference; actual config in user settings)
@@ -624,7 +636,7 @@ Ideal for SSH sessions, headless servers, or developers who prefer staying in th
 
 | Tool | Description |
 |------|-------------|
-| `auto_refactor` | Auto refactoring: split long functions and large files (preview/execute) |
+| `auto_refactor` | Auto refactoring: split long functions and large files, with **two-phase commit** (mechanical `#not-need-review` + logic `#need-review`) |
 | `ydiff_files` | Structural AST-level diff: compare two Python files |
 | `ydiff_commit` | Git commit structural diff, multi-file HTML report |
 | `ydiff_git_changes` | Compare structural changes between any two git refs |

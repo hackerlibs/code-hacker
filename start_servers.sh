@@ -18,7 +18,6 @@ SERVERS=(
     "code_intel.py:8003"
     "memory_store.py:8004"
     "code_review.py:8005"
-    "code_refactor.py:8006"
     "multi_project.py:8007"
 )
 

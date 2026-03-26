@@ -1,6 +1,6 @@
 # Code Hacker — AI Programming Expert
 
-**7 MCP Servers** powering **66+ tools** for a complete AI programming toolchain. Three ways to use:
+**6 MCP Servers** powering **62+ tools** for a complete AI programming toolchain. Three ways to use:
 
 | Mode | Description | Best For |
 |------|-------------|----------|
@@ -8,7 +8,7 @@
 | **Web App (DeepAgent)** | `web_app.py` — standalone web UI with subagents | Full autonomous AI programming, multi-project coordination |
 | **TUI (Terminal UI)** | `tui_app.py` — Claude Code-style terminal interface | SSH / headless servers / terminal-first workflow |
 
-All three modes share the same 7 MCP servers — start once, use anywhere.
+All three modes share the same 6 MCP servers — start once, use anywhere.
 
 ![](./code-hacker2.png)
 ![](./code-hacker.png)
@@ -22,7 +22,7 @@ All three modes share the same 7 MCP servers — start once, use anywhere.
 ### 1. Start All MCP Servers
 
 ```bash
-bash start_servers.sh          # Start all 7 servers (ports 8001-8007)
+bash start_servers.sh          # Start all 6 servers (ports 8001-8005, 8007)
 bash start_servers.sh status   # Check server status
 bash start_servers.sh stop     # Stop all servers
 bash start_servers.sh restart  # Restart all servers
@@ -54,7 +54,7 @@ OPENROUTER_API_KEY=your-key uv run python tui_app.py
 The TUI provides a **Claude Code-style terminal experience** — interactive prompt, streaming Markdown output with syntax highlighting, real-time tool call display (`⏵ Read` → `✓ Read`), command history (↑/↓), and slash commands (`/help`, `/clear`, `/status`, `/quit`). Built on Rich + prompt_toolkit, no extra dependencies required.
 
 The web app (and TUI) is a **complete AI programming tool** built on [deepagents](https://github.com/anthropics/deepagents) (`create_deep_agent`):
-- **66+ MCP tools** from all 7 servers, unified into a single autonomous agent
+- **62+ MCP tools** from all 6 servers, unified into a single autonomous agent
 - **4 specialized subagents**: Git Archaeologist, Code Scanner, Code Reviewer, Workspace Coordinator
 - **Persistent memory** via `FilesystemBackend` + `MemoryMiddleware`
 - **Task planning** via `TodoListMiddleware`
@@ -67,7 +67,7 @@ The web app (and TUI) is a **complete AI programming tool** built on [deepagents
 │  ┌───────────────────────────────────────────────────────────────────┐  │
 │  │  create_deep_agent(                                               │  │
 │  │    model = claude-sonnet-4-5 (via OpenRouter)                    │  │
-│  │    tools = 66 tools from 7 MCP servers                           │  │
+│  │    tools = 62 tools from 6 MCP servers                           │  │
 │  │    subagents = [git_archaeologist, code_scanner,                  │  │
 │  │                 code_reviewer, workspace_coordinator]             │  │
 │  │    memory = ["./AGENTS.md"]                                      │  │
@@ -78,7 +78,7 @@ The web app (and TUI) is a **complete AI programming tool** built on [deepagents
 │                 │ MCP Protocol (streamable-http)                        │
 │  ┌──────────────▼────────────────────────────────────────────────────┐  │
 │  │  filesystem:8001  git:8002  intel:8003  memory:8004               │  │
-│  │  review:8005  refactor:8006  multi-project:8007                   │  │
+│  │  review:8005  multi-project:8007                                  │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
 │  FastAPI + WebSocket → Hacker Terminal UI (http://localhost:8000)       │
@@ -115,9 +115,9 @@ What makes Claude Code powerful is that it's not just a chat window — it's an 
 Code Hacker's design goal: **Replicate and surpass this closed-loop capability** — usable both within VS Code Copilot Chat and as a standalone DeepAgent web app.
 
 Core ideas:
-1. **Separation of Concerns** — Split Claude Code's capabilities into 7 independent MCP Servers, each doing one thing
+1. **Separation of Concerns** — Split Claude Code's capabilities into 6 independent MCP Servers, each doing one thing
 2. **Composition over Inheritance** — Assemble multiple servers into a complete Agent via agent files or DeepAgent
-3. **Three Frontends, One Backend** — VS Code, web_app.py, and tui_app.py share the same 7 MCP servers
+3. **Three Frontends, One Backend** — VS Code, web_app.py, and tui_app.py share the same 6 MCP servers
 4. **Security Sandbox** — Each server has independent security policies (path checks, command blocklists, file whitelists)
 5. **Surpass, Not Imitate** — Code review and structural diff are capabilities Claude Code lacks, based on AST-level analysis and the ydiff algorithm
 6. **Multi-Project First** — Real development involves multiple repos (frontend+backend, app+library, service+pipeline). The workspace system treats multi-repo as a first-class concept
@@ -140,14 +140,13 @@ Core ideas:
 │  │  code-intel/*    │  │                  │  │ ⏵ Read → ✓ Read        │  │
 │  │  memory-store/*  │  │ http://localhost  │  │ Markdown rendering      │  │
 │  │  code-review/*   │  │       :8000      │  │ Command history ↑↓      │  │
-│  │  code-refactor/* │  │                  │  │ /help /clear /status    │  │
-│  │  multi-project/* │  │                  │  │                          │  │
+│  │  multi-project/* │  │                  │  │ /help /clear /status    │  │
 │  └────────┬─────────┘  └────────┬─────────┘  └────────────┬─────────────┘  │
 │           │                      │                          │               │
 │           └──────────────────────┼──────────────────────────┘               │
 │                                  │                                          │
 │               ┌──────────────────▼─────────────────────┐                    │
-│               │  7 MCP Servers (streamable-http)        │                    │
+│               │  6 MCP Servers (streamable-http)        │                    │
 │               │  bash start_servers.sh                  │                    │
 │               └──────────────────┬─────────────────────┘                    │
 │                                  │                                          │
@@ -161,12 +160,10 @@ Core ideas:
 │  │   AST analysis, symbols          │   save/get/search/scratchpad       │  │
 │  │   project_overview, dep graph    │   qa_experience_*                  │  │
 │  │                                  │                                    │  │
-│  │  code_review.py :8005 (8 tools)  │  code_refactor.py :8006 (4 t.)    │  │
-│  │   review_project/file/function   │   auto_refactor                   │  │
-│  │   health_score, find_complex     │   ydiff_files/commit/changes       │  │
-│  │                                  │                                    │  │
-│  │  multi_project.py :8007 (15 tools)                                    │  │
-│  │   workspace_add/search/edit/commit — cross-repo coordination          │  │
+│  │  code_review.py :8005 (11 tools) │  multi_project.py :8007 (15 t.)   │  │
+│  │   review_project/file/function   │   workspace_add/search/edit/commit │  │
+│  │   health_score, find_complex     │   cross-repo coordination          │  │
+│  │   ydiff_files/commit/changes     │                                    │  │
 │  │                                                                        │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -180,8 +177,7 @@ Core ideas:
 | **git-tools** | `git_tools.py` | 11 | Complete Git workflow | Dedicated tools are safer than generic commands. LLM calls structured functions without memorizing git syntax |
 | **code-intel** | `code_intel.py` | 5 | Code understanding & analysis | AST parsing compensates for LLM weaknesses. `project_overview` generates a full project panorama in one call |
 | **memory-store** | `memory_store.py` | 7 | Cross-session persistent memory | Structured JSON storage + categories/tags/search. `scratchpad` for complex reasoning |
-| **code-review** | `code_review.py` | 8 | Code quality review | **Unique capability** — Claude Code doesn't have this. Self-contained AST analysis engine, quantifies code quality, locates hotspots, generates reorganization suggestions |
-| **code-refactor** | `code_refactor.py` | 4 | Auto refactoring + structural diff | **Unique capability** — Auto-splits long functions/large files. ydiff AST-level diff generates interactive HTML reports |
+| **code-review** | `code_review.py` | 11 | Code quality review + structural diff (includes ydiff tools) | **Unique capability** — Claude Code doesn't have this. Self-contained AST analysis engine, quantifies code quality, locates hotspots, generates reorganization suggestions. Also includes ydiff AST-level diff for interactive HTML reports |
 | **multi-project** | `multi_project.py` | 15 | Multi-project workspace: cross-repo search, edit, git, coordinated commit | **Unique capability** — Claude Code can only work in one directory. This enables Jenkinsfile+library, frontend+backend, microservice coordination |
 
 ### Data Flow: Typical Scenarios
@@ -206,11 +202,7 @@ User: "Review this project's code quality"
   ② review_project("/path/to/project")       → Full scan: 5 critical + 12 medium
   ③ find_complex_functions(...)               → Locate TOP 5 complex functions
   ④ review_function("app.py", "process_data") → Deep analysis + refactoring suggestions
-  ⑤ auto_refactor(..., apply=False)           → Preview auto-refactoring plan
-  ⑥ auto_refactor(..., apply=True)            → Execute refactoring (two-phase commit)
-     → commit 1: move code to modules  #not-need-review  ← reviewer 可跳过
-     → commit 2: split long functions  #need-review      ← 需要人工审核
-  ⑦ ydiff_commit(".", "HEAD")                → Generate structural diff HTML report
+  ⑤ ydiff_commit(".", "HEAD")                 → Generate structural diff HTML report
 ```
 
 **Scenario C: Multi-Project Coordinated Edit (Code Hacker Exclusive)**
@@ -266,7 +258,6 @@ A core principle across all three frontends: when AI makes code changes, **separ
 Like math: first do the identity transformation (shape-shifting), then apply the real function. The `#not-need-review` commits are provably equivalent — reviewer can skip them. The remaining commits are where the real logic lives.
 
 This applies to:
-- `auto_refactor`: automatically creates Phase 1 (`#not-need-review`) + Phase 2 (`#need-review`) commits
 - All AI code modifications via VS Code agent, web app, or TUI — the system prompt instructs the AI to follow this pattern
 
 ### Security Architecture
@@ -300,13 +291,6 @@ This applies to:
 │  code_review.py:                        │
 │    └─ All tools are read-only           │
 │                                         │
-│  code_refactor.py:                      │
-│    ├─ auto_refactor defaults to preview │
-│    ├─ .bak backup before refactoring    │
-│    ├─ Two-phase commit: #not-need-review│
-│    │   + #need-review for easy filtering│
-│    └─ ydiff only generates HTML reports │
-│                                         │
 │  multi_project.py:                      │
 │    ├─ File type whitelist (same policy) │
 │    ├─ Command blocklist (rm/format/dd)  │
@@ -337,8 +321,7 @@ This applies to:
 | **Persistent Memory** | Markdown filesystem | Structured JSON + categories/tags | **Code Hacker** |
 | **Web Access** | `WebFetch` + `WebSearch` | `fetch` (VS Code built-in) | Claude Code (search) |
 | **Code Review** | No dedicated tools | `review_project/file/function` + `health_score` | **Code Hacker Exclusive** |
-| **Auto Refactoring** | None | `auto_refactor` — auto-split functions/files | **Code Hacker Exclusive** |
-| **Structural Diff** | None (line-level diff only) | `ydiff_files/commit/git_changes` — AST-level | **Code Hacker Exclusive** |
+| **Structural Diff** | None (line-level diff only) | `ydiff_files/commit/git_changes` — AST-level (in code-review server) | **Code Hacker Exclusive** |
 | **Change Review** | None | `review_diff_text` — quantify old/new code differences | **Code Hacker Exclusive** |
 | **Multi-Project Workspace** | Single directory only | `workspace_*` — 15 tools for cross-repo search, edit, git, coordinated commit | **Code Hacker Exclusive** |
 | **HTML Reports** | None | `generate_report` — visual quality reports | **Code Hacker Exclusive** |
@@ -348,10 +331,9 @@ This applies to:
 
 ### Advantage Summary
 
-**Code Hacker Exclusive/Superior (10 items):**
+**Code Hacker Exclusive/Superior (9 items):**
 - **Code Review**: `review_project/file/function` quantifies code quality — Claude Code has nothing comparable
-- **Auto Refactoring**: `auto_refactor` auto-splits long functions and large files, with preview + execute modes. **Two-phase commit**: mechanical moves → `#not-need-review`, logic splits → `#need-review`
-- **Structural Diff**: `ydiff_files/commit` AST-based diff that understands code moves/renames — Claude Code only has line-level diff
+- **Structural Diff**: `ydiff_files/commit` AST-based diff that understands code moves/renames (now in code-review server) — Claude Code only has line-level diff
 - **Change Review**: `review_diff_text` compares old/new code structural changes, quantifies complexity direction
 - **Multi-Project Workspace**: `workspace_*` 15 tools for cross-repo search, edit, git, coordinated commit — Claude Code is locked to a single directory
 - **Health Score**: `health_score` one-click project scoring 0-100
@@ -378,7 +360,6 @@ Claude Code Core Capability Coverage:
   Persistent Mem   ████████████████████  100%+ (structured storage surpasses)
   Code Review      ████████████████████  ∞%   (Claude Code lacks this)
   Structural Diff  ████████████████████  ∞%   (Claude Code lacks this)
-  Auto Refactor    ████████████████████  ∞%   (Claude Code lacks this)
   Multi-Project    ████████████████████  ∞%   (Claude Code lacks this)
   Web Access       ██████████████░░░░░░   70%  (missing search engine)
   Sub-agents       ████████████████████  100%  (4 subagents in web_app.py)
@@ -386,7 +367,7 @@ Claude Code Core Capability Coverage:
   Notebook         ░░░░░░░░░░░░░░░░░░░░    0%  (can be extended later)
   ─────────────────────────────────────────
   Shared capability coverage    ~85%
-  Unique capabilities           +4 dimensions surpassing Claude Code
+  Unique capabilities           +3 dimensions surpassing Claude Code
 ```
 
 ---
@@ -395,7 +376,7 @@ Claude Code Core Capability Coverage:
 
 ```
 .
-├── start_servers.sh           # Start/stop/status/restart all 7 MCP servers
+├── start_servers.sh           # Start/stop/status/restart all 6 MCP servers
 ├── web_app.py                 # DeepAgent web interface (FastAPI + WebSocket)
 ├── tui_app.py                 # Claude Code-style TUI (Rich + prompt_toolkit)
 ├── subagents.yaml             # 4 subagent definitions for DeepAgent
@@ -405,9 +386,8 @@ Claude Code Core Capability Coverage:
 ├── git_tools.py               # MCP 2: Full Git operations (11 tools)
 ├── code_intel.py              # MCP 3: AST analysis, symbol extraction, dependency graph (5 tools)
 ├── memory_store.py            # MCP 4: Persistent memory + scratchpad + QA experience (11 tools)
-├── code_review.py             # MCP 5: Code quality review (8 tools)
-├── code_refactor.py           # MCP 6: Auto refactoring + structural diff (4 tools)
-├── multi_project.py           # MCP 7: Multi-project workspace — cross-repo ops (15 tools)
+├── code_review.py             # MCP 5: Code quality review + structural diff / ydiff (11 tools)
+├── multi_project.py           # MCP 6: Multi-project workspace — cross-repo ops (15 tools)
 ├── lib/
 │   ├── __init__.py
 │   ├── ydiff_python.py        # AST structural diff engine
@@ -459,10 +439,10 @@ You can also set the `AG_PATH` environment variable to specify a custom path to 
 
 ### Step 1: Start MCP Servers
 
-All 7 MCP servers use streamable-http transport. Start them all at once with:
+All 6 MCP servers use streamable-http transport. Start them all at once with:
 
 ```bash
-bash start_servers.sh          # Start all 7 servers
+bash start_servers.sh          # Start all 6 servers
 bash start_servers.sh status   # Check which servers are running
 bash start_servers.sh stop     # Stop all servers
 bash start_servers.sh restart  # Restart all servers
@@ -476,7 +456,6 @@ python git_tools.py       # Port 8002
 python code_intel.py      # Port 8003
 python memory_store.py    # Port 8004
 python code_review.py     # Port 8005
-python code_refactor.py   # Port 8006
 python multi_project.py   # Port 8007
 ```
 
@@ -513,10 +492,6 @@ Open `settings.json` (`Ctrl+Shift+P` → `Preferences: Open User Settings (JSON)
         "type": "sse",
         "url": "http://localhost:8005/mcp"
       },
-      "code-refactor": {
-        "type": "sse",
-        "url": "http://localhost:8006/mcp"
-      },
       "multi-project": {
         "type": "sse",
         "url": "http://localhost:8007/mcp"
@@ -528,11 +503,11 @@ Open `settings.json` (`Ctrl+Shift+P` → `Preferences: Open User Settings (JSON)
 
 ### Step 3 (VS Code): Verify MCP Connection
 
-After adding the configuration, VS Code's status bar will show MCP server status. Ensure all 7 servers are shown as connected.
+After adding the configuration, VS Code's status bar will show MCP server status. Ensure all 6 servers are shown as connected.
 
 If not connected, check:
-- All 7 server processes are running (`bash start_servers.sh status`)
-- Ports 8001-8007 are not occupied by other processes
+- All 6 server processes are running (`bash start_servers.sh status`)
+- Ports 8001-8005, 8007 are not occupied by other processes
 
 ### Step 4 (VS Code): Place Agent File
 
@@ -540,7 +515,7 @@ Place `code-hacker.agent.md` in the **project root directory** you want to use i
 
 > Key configuration — the `tools` field must use the `server-name/*` wildcard format:
 > ```yaml
-> tools: ["filesystem-command/*", "git-tools/*", "code-intel/*", "memory-store/*", "code-review/*", "code-refactor/*", "multi-project/*", "fetch"]
+> tools: ["filesystem-command/*", "git-tools/*", "code-intel/*", "memory-store/*", "code-review/*", "multi-project/*", "fetch"]
 > ```
 > `fetch` is a VS Code built-in tool and requires no additional configuration.
 
@@ -573,7 +548,7 @@ uv run python web_app.py
 # Open http://localhost:8000
 ```
 
-The web app connects to all 7 MCP servers, loads 66+ tools, creates a DeepAgent with 4 subagents, and serves a WebSocket-based chat UI with real-time tool execution streaming.
+The web app connects to all 6 MCP servers, loads 62+ tools, creates a DeepAgent with 4 subagents, and serves a WebSocket-based chat UI with real-time tool execution streaming.
 
 ### Step 2 (TUI): Start Claude Code-style Terminal Interface
 
@@ -650,7 +625,7 @@ Ideal for SSH sessions, headless servers, or developers who prefer staying in th
 | `memory_delete` | Delete memory |
 | `scratchpad_write/read/append` | Temporary scratchpad (for complex reasoning) |
 
-### code-review (8 tools)
+### code-review (11 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -662,12 +637,6 @@ Ideal for SSH sessions, headless servers, or developers who prefer staying in th
 | `find_complex_functions` | Highest complexity functions ranking |
 | `suggest_reorg` | File reorganization suggestions (by naming patterns and class distribution) |
 | `review_diff_text` | Compare old/new code strings, analyze change impact |
-
-### code-refactor (4 tools)
-
-| Tool | Description |
-|------|-------------|
-| `auto_refactor` | Auto refactoring: split long functions and large files, with **two-phase commit** (mechanical `#not-need-review` + logic `#need-review`) |
 | `ydiff_files` | Structural AST-level diff: compare two Python files |
 | `ydiff_commit` | Git commit structural diff, multi-file HTML report |
 | `ydiff_git_changes` | Compare structural changes between any two git refs |

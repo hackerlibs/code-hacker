@@ -11,13 +11,20 @@ Code Review MCP Server — 代码质量审查工具。
 """
 
 import os
+import sys
 import ast
 import json
+import subprocess
 from dataclasses import dataclass, field
 from typing import Optional
 from collections import defaultdict
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
+
+# 将 lib/ 加入搜索路径（ydiff 引擎）
+_LIB_DIR = str(Path(__file__).parent / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
 # ─── 初始化 MCP Server ─────────────────────────────────────────────────────
 mcp = FastMCP(name="code-review", host='localhost', port=8005)
@@ -769,6 +776,172 @@ async def review_diff_text(old_code: str, new_code: str) -> str:
     if new_issues:
         lines.append(f"\n--- 新代码中的质量问题 ---")
         lines.extend(new_issues)
+
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  MCP Tools — ydiff 结构化 Diff（人类审核 AI 改动的关键工具）
+# ═══════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+async def ydiff_files(file_path1: str, file_path2: str, output_path: str = "") -> str:
+    """Structural AST-level diff of two Python files. Unlike line-based diff,
+    this understands code structure — detects moved functions, semantic changes.
+    Generates interactive side-by-side HTML with click-to-navigate highlighting.
+
+    Args:
+        file_path1: Path to the old Python file
+        file_path2: Path to the new Python file
+        output_path: Output HTML path (default: auto-generated)
+    """
+    for fp in (file_path1, file_path2):
+        if not Path(fp).is_file():
+            return f"Error: File not found: {fp}"
+
+    try:
+        import ydiff_python
+    except ImportError:
+        return "Error: ydiff_python module not found in lib/"
+
+    try:
+        text1 = Path(file_path1).read_text(encoding="utf-8", errors="replace")
+        text2 = Path(file_path2).read_text(encoding="utf-8", errors="replace")
+
+        node1 = ydiff_python.parse_python(text1)
+        node2 = ydiff_python.parse_python(text2)
+        changes = ydiff_python.diff(node1, node2)
+        out = ydiff_python.htmlize(changes, file_path1, file_path2, text1, text2)
+
+        if output_path and output_path != out:
+            Path(out).rename(output_path)
+            out = output_path
+
+        return (f"Structural diff 报告已生成: {out}\n"
+                f"在浏览器中打开查看交互式对比。\n"
+                f"  红色: 删除的代码\n"
+                f"  绿色: 新增的代码\n"
+                f"  灰色链接: 匹配/移动的代码（点击跳转）")
+    except SyntaxError as e:
+        return f"Error: Python 语法错误: {e}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+async def ydiff_commit(project_dir: str, commit_id: str, output_path: str = "") -> str:
+    """Structural diff report for a git commit. Analyzes all changed Python files
+    using AST-level comparison. Produces multi-file HTML with file navigator sidebar.
+
+    Args:
+        project_dir: Path to the git repository
+        commit_id: Git commit hash (full or short)
+        output_path: Output HTML path (default: commit-<hash>.html)
+    """
+    path = Path(project_dir)
+    if not path.is_dir():
+        return f"Error: Directory does not exist: {project_dir}"
+
+    try:
+        import ydiff_python
+    except ImportError:
+        return "Error: ydiff_python module not found in lib/"
+
+    try:
+        out = ydiff_python.diff_commit(project_dir, commit_id, output_path or None)
+        return (f"Commit diff 报告: {out}\n"
+                f"功能:\n"
+                f"  文件导航侧栏 (M/A/D/R 状态)\n"
+                f"  左红右绿对比面板\n"
+                f"  点击匹配代码跳转对应位置")
+    except RuntimeError as e:
+        return f"Git error: {e}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+async def ydiff_git_changes(project_dir: str, base: str = "HEAD~1", output_path: str = "") -> str:
+    """Structural diff of all Python files changed between two git refs.
+    Useful for reviewing a branch's changes or recent commits.
+
+    Args:
+        project_dir: Path to the git repository
+        base: Base git ref to compare against (default: HEAD~1, can be branch name or commit)
+        output_path: Output HTML path (default: auto-generated)
+    """
+    path = Path(project_dir)
+    if not path.is_dir():
+        return f"Error: Directory does not exist: {project_dir}"
+
+    try:
+        import ydiff_python
+    except ImportError:
+        return "Error: ydiff_python module not found in lib/"
+
+    # Get list of changed Python files
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", base, "--", "*.py"],
+            cwd=project_dir, capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return f"Git error: {result.stderr}"
+
+        changed_files = [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
+        if not changed_files:
+            return f"No Python files changed between {base} and HEAD."
+
+    except Exception as e:
+        return f"Error running git: {e}"
+
+    reports = []
+    for rel_file in changed_files:
+        full_path = os.path.join(project_dir, rel_file)
+        if not Path(full_path).is_file():
+            continue
+
+        # Get old version
+        try:
+            old_result = subprocess.run(
+                ["git", "show", f"{base}:{rel_file}"],
+                cwd=project_dir, capture_output=True, text=True, timeout=10,
+            )
+            old_text = old_result.stdout if old_result.returncode == 0 else ""
+        except Exception:
+            old_text = ""
+
+        new_text = Path(full_path).read_text(encoding="utf-8", errors="replace")
+
+        if not old_text and not new_text:
+            continue
+
+        try:
+            node_old = ydiff_python.parse_python(old_text) if old_text else ydiff_python.Node("Module", 0, 0, [])
+            node_new = ydiff_python.parse_python(new_text) if new_text else ydiff_python.Node("Module", 0, 0, [])
+            changes = ydiff_python.diff(node_old, node_new)
+
+            ins = sum(1 for c in changes if c.old is None)
+            dels = sum(1 for c in changes if c.new is None)
+            moves = sum(1 for c in changes if c.type == 'mov' and c.cost > 0)
+
+            reports.append(f"  {rel_file}: +{ins} -{dels}" + (f" ~{moves} moved" if moves else ""))
+        except Exception as e:
+            reports.append(f"  {rel_file}: parse error ({e})")
+
+    lines = [
+        f"=== Structural Diff: {base}..HEAD ===",
+        f"项目: {path.resolve()}",
+        f"变更文件: {len(changed_files)}",
+        "",
+    ] + reports
+
+    # Generate combined HTML report
+    try:
+        out = ydiff_python.diff_commit(project_dir, "HEAD", output_path or None)
+        lines.append(f"\nHTML 报告: {out}")
+    except Exception:
+        lines.append(f"\n(HTML 报告生成跳过)")
 
     return "\n".join(lines)
 

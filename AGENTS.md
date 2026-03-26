@@ -31,22 +31,21 @@ This section is a convenience only. If it gets out of date, trust the repo tree.
 - `git_tools.py` — MCP Server 2: Git operations (port 8002)
 - `code_intel.py` — MCP Server 3: AST analysis, symbols, dependency graph (port 8003)
 - `memory_store.py` — MCP Server 4: Persistent memory + scratchpad + QA experience (port 8004)
-- `code_review.py` — MCP Server 5: Code quality review + health score (port 8005)
-- `code_refactor.py` — MCP Server 6: Auto refactoring + ydiff structural diff (port 8006)
-- `multi_project.py` — MCP Server 7: Multi-project workspace (port 8007)
-- `lib/` — Internal engines (ydiff AST diff, refactor auto-split)
+- `code_review.py` — MCP Server 5: Code quality review + health score + ydiff structural diff (port 8005)
+- `multi_project.py` — MCP Server 6: Multi-project workspace (port 8007)
+- `lib/` — Internal engines (ydiff AST diff)
 - `web_app.py` — DeepAgent web interface (FastAPI + WebSocket)
 - `tui_app.py` — Claude Code-style TUI (Rich + prompt_toolkit)
 - `subagents.yaml` — 4 subagent definitions
 - `static/` — Hacker-style web terminal UI
 - `tests/` — LLM-powered integration test scenarios
-- `start_servers.sh` — Start/stop/status/restart all 7 MCP servers
+- `start_servers.sh` — Start/stop/status/restart all 6 MCP servers
 - `codehacker/` — Package directory
 
 ## Architecture Constraints
 
 - **Three Frontends, One Backend** — VS Code, web_app.py, and tui_app.py all share the same 7 MCP servers. Changes to a server affect all three frontends.
-- **Streamable HTTP transport** — All MCP servers use `streamable-http` on ports 8001–8007. Do not change transport type or port assignments without updating all consumers.
+- **Streamable HTTP transport** — All MCP servers use `streamable-http` on assigned ports. Do not change transport type or port assignments without updating all consumers.
 - **Security sandbox** — Each server has independent security policies (path checks, command blocklists, file whitelists). Respect these boundaries.
 - **Tool names are API** — Tool names (e.g., `edit_file`, `git_status`, `workspace_search`) are referenced in `code-hacker.agent.md`, `web_app.py`, `tui_app.py`, `subagents.yaml`, and tests. Renaming a tool is a breaking change.
 
@@ -78,7 +77,7 @@ This section is a convenience only. If it gets out of date, trust the repo tree.
 For any change that affects MCP servers or agent behavior:
 
 1. Start all servers: `bash start_servers.sh`
-2. Check status: `bash start_servers.sh status` — all 7 should be `[UP]`
+2. Check status: `bash start_servers.sh status` — all 6 should be `[UP]`
 3. Run tests if applicable:
    ```bash
    NO_PROXY=localhost,127.0.0.1 uv run pytest tests/test_scenarios.py -v -s

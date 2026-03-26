@@ -10,7 +10,7 @@ Guide for creating, modifying, or debugging MCP servers in the Code Hacker proje
 
 ## Architecture Overview
 
-Code Hacker uses 7 MCP servers, all using `FastMCP` with streamable-http transport:
+Code Hacker uses 6 MCP servers, all using `FastMCP` with streamable-http transport:
 
 | Server | File | Port | Tools |
 |--------|------|------|-------|
@@ -18,8 +18,7 @@ Code Hacker uses 7 MCP servers, all using `FastMCP` with streamable-http transpo
 | git-tools | `git_tools.py` | 8002 | 11 |
 | code-intel | `code_intel.py` | 8003 | 5 |
 | memory-store | `memory_store.py` | 8004 | 7+ |
-| code-review | `code_review.py` | 8005 | 8 |
-| code-refactor | `code_refactor.py` | 8006 | 4 |
+| code-review | `code_review.py` | 8005 | 11 |
 | multi-project | `multi_project.py` | 8007 | 15 |
 
 ## Adding a New Tool to an Existing Server
@@ -81,7 +80,7 @@ curl -s http://localhost:8001/mcp -X POST \
 
 ## Important Constraints
 
-- **Port range**: 8001–8007 are reserved. New servers use 8008+.
+- **Port range**: 8001–8005, 8007 are reserved. New servers use 8008+.
 - **Tool names are API**: Renaming breaks `code-hacker.agent.md`, `subagents.yaml`, `web_app.py`, `tui_app.py`, and tests.
 - **Security**: Each server must implement its own security checks (path validation, command blocklists, etc.).
 - **Proxy bypass**: Clients must set `NO_PROXY=localhost,127.0.0.1` to avoid proxy interference.

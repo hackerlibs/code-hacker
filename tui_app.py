@@ -64,7 +64,6 @@ MCP_SERVERS = {
     "code-intel":         "http://localhost:8003/mcp",
     "memory-store":       "http://localhost:8004/mcp",
     "code-review":        "http://localhost:8005/mcp",
-    "code-refactor":      "http://localhost:8006/mcp",
     "multi-project":      "http://localhost:8007/mcp",
     "mermaid-chart":      "http://localhost:8008/mcp",
 }
@@ -153,9 +152,7 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 ### 5. Code Review (code-review)
 - `review_project` / `review_file` / `review_function` / `health_score`
 - `find_long_functions` / `find_complex_functions` / `suggest_reorg` / `review_diff_text`
-
-### 6. Code Refactoring (code-refactor)
-- `auto_refactor` / `ydiff_files` / `ydiff_commit` / `ydiff_git_changes`
+- `ydiff_files` / `ydiff_commit` / `ydiff_git_changes` — Structural AST-level diff (visual HTML reports)
 
 ### 8. Mermaid Chart (mermaid-chart)
 - `render_mermaid` — Render Mermaid code to interactive HTML and open in browser

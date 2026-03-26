@@ -6,11 +6,11 @@ user_invocable: true
 
 # Code Review Skill
 
-Use the Code Hacker MCP servers (code-review on port 8005, code-refactor on port 8006) to perform code quality analysis.
+Use the Code Hacker MCP servers (code-review on port 8005) to perform code quality analysis and structural diff reviews.
 
 ## Prerequisites
 
-- All 7 MCP servers must be running: `bash start_servers.sh`
+- All MCP servers must be running: `bash start_servers.sh`
 - Verify with: `bash start_servers.sh status`
 
 ## Workflow
@@ -40,7 +40,6 @@ Or when used via DeepAgent / VS Code agent, the tools are called directly:
 3. **Find hotspots**: Run `find_complex_functions` and `find_long_functions`
 4. **Deep dive**: Run `review_function` on the most problematic functions
 5. **Generate structural diff**: Run `ydiff_commit` or `ydiff_files` for visual diff reports
-6. **Preview refactoring**: Run `auto_refactor(apply=False)` before executing
 
 ### Reviewing AI-Generated Code
 

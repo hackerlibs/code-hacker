@@ -6,7 +6,7 @@ user_invocable: true
 
 # YDiff Structural Diff Skill
 
-Use Code Hacker's ydiff engine (code-refactor server, port 8006) to generate AST-level structural diff reports. Unlike line-level diffs, ydiff understands code moves, renames, and structural changes.
+Use Code Hacker's ydiff engine (code-review server, port 8005) to generate AST-level structural diff reports. Unlike line-level diffs, ydiff understands code moves, renames, and structural changes.
 
 ## Prerequisites
 

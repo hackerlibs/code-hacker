@@ -21,7 +21,53 @@ SERVERS=(
     "multi_project.py:8007"
 )
 
+# ─── Resolve Python command (uv > .venv > system python) ─────────────
+resolve_python() {
+    # 1) uv project: use "uv run python" for correct venv
+    if command -v uv &>/dev/null && [ -f "$SCRIPT_DIR/pyproject.toml" ]; then
+        PYTHON_CMD="uv run python"
+        return
+    fi
+
+    # 2) Local .venv exists: activate it
+    if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+        PYTHON_CMD="$SCRIPT_DIR/.venv/bin/python"
+        return
+    fi
+
+    # 3) Fallback: system python
+    for cmd in python3 python; do
+        if command -v "$cmd" &>/dev/null; then
+            PYTHON_CMD="$cmd"
+            return
+        fi
+    done
+
+    echo "ERROR: Python not found. Install Python 3.11+ first."
+    exit 1
+}
+
+# ─── Check that core MCP dependencies are importable ─────────────────
+check_deps() {
+    if ! $PYTHON_CMD -c "import mcp, fastapi, uvicorn" 2>/dev/null; then
+        echo ""
+        echo "ERROR: MCP dependencies not installed (mcp, fastapi, uvicorn)."
+        echo ""
+        echo "Fix: run one of these first:"
+        echo "  uv sync                          # if you use uv (recommended)"
+        echo "  pip install -e .                  # if you use pip"
+        echo "  bash install.sh                   # one-click full install"
+        echo ""
+        exit 1
+    fi
+}
+
+resolve_python
+echo "Using Python: $PYTHON_CMD"
+
 start_servers() {
+    check_deps
+
     mkdir -p "$PID_DIR"
     echo "=== Starting MCP Servers ==="
     echo ""
@@ -38,7 +84,7 @@ start_servers() {
         fi
 
         echo -n "  Starting $name on port $port ... "
-        cd "$MCP_DIR" && python "$script" > "$PID_DIR/$name.log" 2>&1 &
+        cd "$MCP_DIR" && NO_PROXY=localhost,127.0.0.1 $PYTHON_CMD "$script" > "$PID_DIR/$name.log" 2>&1 &
         local pid=$!
         echo "$pid" > "$pid_file"
         sleep 0.3

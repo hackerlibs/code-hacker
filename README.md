@@ -19,7 +19,31 @@ All three modes share the same 6 MCP servers — start once, use anywhere.
 
 ## Quick Start
 
-### 1. Start All MCP Servers
+### One-Click Install (VS Code Custom Agent + MCP Servers)
+
+**macOS / Linux:**
+```bash
+bash install.sh                # Full install: deps + VS Code config + start servers
+bash install.sh --no-vscode    # Skip VS Code configuration
+bash install.sh --servers-only # Only start MCP servers
+```
+
+**Windows (PowerShell):**
+```powershell
+.\install.ps1                  # Full install: deps + VS Code config + start servers
+.\install.ps1 -NoVSCode        # Skip VS Code configuration
+.\install.ps1 -ServersOnly     # Only start MCP servers
+```
+
+The installer will:
+1. Check prerequisites (Python 3.11+, uv/pip, Git)
+2. Install all Python dependencies
+3. Install GitHub Copilot extensions in VS Code
+4. Register MCP servers in VS Code user settings
+5. Start all 6 MCP servers
+6. Run health check to verify everything works
+
+### Manual Server Management
 
 ```bash
 bash start_servers.sh          # Start all 6 servers (ports 8001-8005, 8007)
@@ -27,6 +51,8 @@ bash start_servers.sh status   # Check server status
 bash start_servers.sh stop     # Stop all servers
 bash start_servers.sh restart  # Restart all servers
 ```
+
+Windows: `.\stop_servers.ps1` (stop) / `.\stop_servers.ps1 -Status` (status)
 
 ### 2a. Use with VS Code (Custom Agent)
 

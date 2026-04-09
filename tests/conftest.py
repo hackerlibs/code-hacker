@@ -49,6 +49,42 @@ async def deep_agent():
         pass
 
 
+@pytest.fixture(scope="session")
+async def memory_tools():
+    """
+    Fresh MCP client connected straight to the running memory-store server.
+
+    Tests use this fixture to seed and clean up memories without going through
+    the LLM. We deliberately do NOT import memory_store directly: pycozo forbids
+    two processes opening the same embedded SQLite DB, and the MCP server is
+    already holding it open.
+    """
+    from contextlib import AsyncExitStack
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+    from langchain_mcp_adapters.tools import load_mcp_tools
+
+    stack = AsyncExitStack()
+    await stack.__aenter__()
+    try:
+        transport = await stack.enter_async_context(
+            streamablehttp_client("http://localhost:8004/mcp")
+        )
+        read_stream, write_stream, _ = transport
+        session = await stack.enter_async_context(
+            ClientSession(read_stream, write_stream)
+        )
+        await session.initialize()
+        tools = await load_mcp_tools(session, server_name="memory-store")
+        by_name = {t.name: t for t in tools}
+        yield by_name
+    finally:
+        try:
+            await stack.aclose()
+        except Exception:
+            pass
+
+
 async def run_agent_query(agent, query: str, thread_id: str = "test") -> dict:
     """
     Run a query through the DeepAgent and collect results.
@@ -57,12 +93,14 @@ async def run_agent_query(agent, query: str, thread_id: str = "test") -> dict:
         - messages: list of all messages
         - text: final assistant text response
         - tool_calls: list of tool names invoked
+        - tool_calls_full: list of (name, args) tuples for finer assertions
         - tool_results: list of tool result contents
     """
     from langchain_core.messages import AIMessage, ToolMessage
 
     text_parts = []
     tool_calls = []
+    tool_calls_full = []
     tool_results = []
     all_messages = []
 
@@ -84,7 +122,9 @@ async def run_agent_query(agent, query: str, thread_id: str = "test") -> dict:
                     text_parts.append(content)
             if msg.tool_calls:
                 for tc in msg.tool_calls:
-                    tool_calls.append(tc.get("name", "unknown"))
+                    name = tc.get("name", "unknown")
+                    tool_calls.append(name)
+                    tool_calls_full.append((name, tc.get("args", {}) or {}))
         elif isinstance(msg, ToolMessage):
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             tool_results.append(content)
@@ -93,5 +133,33 @@ async def run_agent_query(agent, query: str, thread_id: str = "test") -> dict:
         "messages": all_messages,
         "text": "\n".join(text_parts),
         "tool_calls": tool_calls,
+        "tool_calls_full": tool_calls_full,
         "tool_results": tool_results,
     }
+
+
+async def cleanup_memory_by_tag(memory_tools: dict, tag: str) -> None:
+    """
+    Delete every memory carrying the given tag. Used by tests to leave the
+    user's real memory store clean. Tolerant of missing tools / no matches.
+    """
+    import re
+
+    search = memory_tools.get("memory_search")
+    delete = memory_tools.get("memory_delete")
+    if not search or not delete:
+        return
+
+    try:
+        result = await search.ainvoke({"query": "", "tag": tag, "limit": 100})
+    except Exception:
+        return
+
+    text = result if isinstance(result, str) else str(result)
+    # memory_search formats each row as "    id: <id>  (used ...)" — pull every id.
+    ids = re.findall(r"id:\s*(\S+)", text)
+    for mid in set(ids):
+        try:
+            await delete.ainvoke({"id": mid})
+        except Exception:
+            pass

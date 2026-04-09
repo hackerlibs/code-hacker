@@ -144,10 +144,14 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 - `analyze_python_file` / `extract_symbols` / `project_overview`
 - `find_references` / `dependency_graph`
 
-### 4. Persistent Memory (memory-store)
-- `memory_save` / `memory_get` / `memory_search` / `memory_list` / `memory_delete`
-- `scratchpad_write` / `scratchpad_read` / `scratchpad_append`
-- `qa_experience_save` / `qa_experience_search` / `qa_experience_get`
+### 4. Persistent Memory (memory-store) — CozoDB-backed reusable experience knowledge base
+- `memory_save(title, category, solution, problem, context, pattern, tags)` — save a reusable experience
+- `memory_get(id)` — fetch by id (also bumps the usage counter)
+- `memory_search(query, category, tag, limit)` — full-text search with combinable filters
+- `memory_list(category, limit)` / `memory_delete(id)` / `memory_categories()` / `memory_top_used(limit)`
+- Category-scoped finders: `find_email_template(query, to_customer)`, `find_jira_template`, `find_bugfix`, `find_pipeline`, `find_devops_lib`, `find_ai_knowledge`
+- `qa_experience_save / qa_experience_search / qa_experience_get` — back-compat wrappers (stored under `qa_experience`)
+- `scratchpad_write / scratchpad_read / scratchpad_append` — short-lived working memory
 
 ### 5. Code Review (code-review)
 - `review_project` / `review_file` / `review_function` / `health_score`
@@ -171,8 +175,40 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 - Understand first, act second: read files and analyze before modifying
 - Prefer `edit_file` for precise replacements over rewriting entire files
 - Check `git_status` before modifications
-- Use memory to persist important context
 - Safety first: confirm before destructive operations
+
+### Reusable Experience Memory (this is your long-term brain — USE IT)
+The `memory-store` server is a CozoDB-backed knowledge base of **what worked before** —
+prompts that succeeded, pipeline recipes, customer/internal email templates, JIRA templates,
+bug-fix patterns, devops library snippets, full QA dialogues. Don't make the user solve the
+same problem twice.
+
+**Recall (BEFORE solving any new task):**
+1. Search past experience with keywords from the user's request — `memory_search(query=...)`,
+   or better, the category-scoped finder when you know the bucket: `find_pipeline`,
+   `find_email_template(..., to_customer=True/False)`, `find_jira_template`, `find_bugfix`,
+   `find_devops_lib`, `find_ai_knowledge`.
+2. If a relevant hit exists, call `memory_get(<id>)` to read it (this bumps its usage counter so
+   workhorses surface higher next time), then **tell the user** you found a prior experience and
+   apply the same pattern.
+
+**Save (when the user signals "remember it"):**
+Trigger phrases — "记住", "记住它", "帮我记住", "remember this", "save this", "下次也这样做".
+After the problem is solved, classify it and call `memory_save` with the right `category`:
+- `pipeline` — CI/CD or data pipeline recipes
+- `email_customer` / `email_internal` — email templates
+- `jira_template` — JIRA / ticket templates
+- `bug_fix` — bug-fix recipes
+- `devops_lib` — devops/infra library usage notes
+- `ai_knowledge` — AI prompts / model usage
+- `qa_experience` — successful QA dialogue patterns
+
+Fill `title`, `problem`, `context` (the **key dialogue turns** A→B→C that led to the breakthrough),
+`solution` (the concrete answer to paste back next time), `pattern` (the **reusable strategy**, the
+most valuable field), and `tags`.
+
+If the user just nailed a non-trivial problem and is clearly satisfied, proactively offer to save it.
+Use `scratchpad_*` only for short-lived current-task notes; cross-session knowledge belongs in `memory_save`.
 
 ### Two-Phase Commit (Reviewer-Friendly AI Changes)
 When changes involve both structural reorganization and logic modifications, **split into two commits**:
@@ -218,16 +254,24 @@ TOOL_ICONS = {
     "find_references": ("Refs", "magenta"),
     "dependency_graph": ("Deps", "magenta"),
     # Memory
-    "memory_save": ("Memory", "blue"),
+    "memory_save": ("Memory+", "blue"),
     "memory_get": ("Memory", "blue"),
-    "memory_search": ("Memory", "blue"),
+    "memory_search": ("MemSearch", "blue"),
     "memory_list": ("Memory", "blue"),
-    "memory_delete": ("Memory", "red"),
+    "memory_delete": ("Memory-", "red"),
+    "memory_categories": ("MemStats", "blue"),
+    "memory_top_used": ("MemTop", "blue"),
+    "find_email_template": ("FindEmail", "blue"),
+    "find_jira_template": ("FindJira", "blue"),
+    "find_bugfix": ("FindBug", "blue"),
+    "find_pipeline": ("FindPipe", "blue"),
+    "find_devops_lib": ("FindOps", "blue"),
+    "find_ai_knowledge": ("FindAI", "blue"),
     "scratchpad_write": ("Scratch", "blue"),
     "scratchpad_read": ("Scratch", "blue"),
     "scratchpad_append": ("Scratch", "blue"),
-    "qa_experience_save": ("QA", "blue"),
-    "qa_experience_search": ("QA", "blue"),
+    "qa_experience_save": ("QA+", "blue"),
+    "qa_experience_search": ("QASearch", "blue"),
     "qa_experience_get": ("QA", "blue"),
     # Code Review
     "review_project": ("Review", "yellow"),
@@ -298,10 +342,30 @@ def format_tool_call(name: str, args: dict) -> Text:
             detail = args["message"][:60]
     elif name == "project_overview":
         detail = args.get("directory", ".")
-    elif name in ("memory_save", "memory_get"):
-        detail = args.get("key", "")
+    elif name == "memory_save":
+        cat = args.get("category", "")
+        title = args.get("title", "")
+        detail = f"[{cat}] {title}" if cat else title
+    elif name == "memory_get":
+        detail = args.get("id", "")
     elif name == "memory_search":
+        cat = args.get("category", "")
+        tag = args.get("tag", "")
+        q = args.get("query", "")
+        suffix = " ".join(x for x in [cat and f"cat={cat}", tag and f"tag={tag}"] if x)
+        detail = f"{q} {suffix}".strip()
+    elif name == "memory_list":
+        detail = args.get("category", "")
+    elif name == "memory_delete":
+        detail = args.get("id", "")
+    elif name == "find_email_template":
+        kind = "customer" if args.get("to_customer", True) else "internal"
+        detail = f"[{kind}] {args.get('query', '')}"
+    elif name in ("find_jira_template", "find_bugfix", "find_pipeline",
+                  "find_devops_lib", "find_ai_knowledge"):
         detail = args.get("query", "")
+    elif name in ("scratchpad_write", "scratchpad_read", "scratchpad_append"):
+        detail = args.get("name", "default")
     elif name == "task":
         detail = args.get("description", "")[:60]
     elif name == "workspace_exec":

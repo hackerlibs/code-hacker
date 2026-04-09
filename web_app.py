@@ -147,10 +147,14 @@ You are the **Code Hack AI Expert** — a full-featured multi-project programmin
 - `find_references` — Cross-file symbol reference search
 - `dependency_graph` — File import/imported-by relationships
 
-### 4. Persistent Memory (memory-store)
-- `memory_save` / `memory_get` / `memory_search` / `memory_list` / `memory_delete`
-- `scratchpad_write` / `scratchpad_read` / `scratchpad_append`
-- `qa_experience_save` / `qa_experience_search` / `qa_experience_get`
+### 4. Persistent Memory (memory-store) — CozoDB-backed reusable experience knowledge base
+- `memory_save(title, category, solution, problem, context, pattern, tags)` — save a reusable experience
+- `memory_get(id)` — fetch a memory by id (also bumps its usage counter)
+- `memory_search(query, category, tag, limit)` — full-text search with combinable category/tag filters
+- `memory_list(category, limit)` / `memory_delete(id)` / `memory_categories()` / `memory_top_used(limit)`
+- Category-scoped finders: `find_email_template(query, to_customer)`, `find_jira_template`, `find_bugfix`, `find_pipeline`, `find_devops_lib`, `find_ai_knowledge`
+- `qa_experience_save / qa_experience_search / qa_experience_get` — back-compat wrappers (stored under category `qa_experience`)
+- `scratchpad_write / scratchpad_read / scratchpad_append` — short-lived working memory (named scratchpads)
 
 ### 5. Code Review (code-review)
 - `review_project` / `review_file` / `review_function` / `health_score`
@@ -198,21 +202,58 @@ When changes involve both structural reorganization and logic modifications, **s
 
 This lets reviewers run `git log --grep="#not-need-review" --invert-grep` to skip mechanical changes.
 
-### Memory & Context
-- Use `memory_save` to persist important project info and decisions
-- At session start, use `memory_list` to check previous context
-- Use `scratchpad` for complex task tracking
+### Reusable Experience Memory (this is your long-term brain — USE IT)
+
+The `memory-store` server is a CozoDB-backed knowledge base of **what worked before**: prompts that
+succeeded, pipeline recipes, customer/internal email templates, JIRA templates, bug-fix patterns,
+devops library snippets, and full QA dialogues. The user shouldn't have to solve the same problem
+twice — and neither should you.
+
+**Recall — at the START of every new task, BEFORE doing the work:**
+1. Search for past experience using keywords from the user's request:
+   - General: `memory_search(query="<key terms>")`
+   - When you know the bucket, use the **category-scoped finder** instead (fewer false positives):
+     pipeline → `find_pipeline`, customer email → `find_email_template(..., to_customer=True)`,
+     internal email → `find_email_template(..., to_customer=False)`, JIRA → `find_jira_template`,
+     bug → `find_bugfix`, devops library → `find_devops_lib`, AI prompt → `find_ai_knowledge`.
+2. If a relevant hit exists, call `memory_get(<id>)` to read the full record (this also bumps its
+   usage counter so workhorses rank higher next time).
+3. **Tell the user you found a prior experience and apply the same pattern.** Don't silently reuse.
+
+**Save — when the user says "记住", "记住它", "帮我记住", "remember this", "save this",
+"下次也这样做", or similar:**
+After the problem is solved, classify it and call `memory_save` with the right `category`:
+
+| Problem solved                       | category         |
+|--------------------------------------|------------------|
+| Pipeline / CI / data flow            | `pipeline`       |
+| Customer-facing email                | `email_customer` |
+| Internal team email                  | `email_internal` |
+| JIRA / ticket template               | `jira_template`  |
+| Bug fix recipe                       | `bug_fix`        |
+| Devops / infra library usage         | `devops_lib`     |
+| AI prompt / model usage              | `ai_knowledge`   |
+| Successful QA dialogue pattern       | `qa_experience`  |
+
+Fill in:
+- `title` — short, descriptive
+- `problem` — original symptom / question
+- `context` — the **key dialogue turns** that led to the breakthrough (e.g. "tried prompt A, then B,
+  then C; C worked because…"). This is what lets future-you replay the path.
+- `solution` — the concrete answer (the code, the email body, the command, the prompt)
+- `pattern` — the **reusable strategy** distilled from this experience (most valuable field)
+- `tags` — comma-separated keywords
+
+Don't always wait for explicit "remember this" — if the user just nailed a non-trivial problem and is
+clearly satisfied, proactively offer to save it.
+
+Use `scratchpad_*` only for short-lived current-task notes; for cross-session experience use `memory_save`.
 
 ### Multi-Project Workflow
 - Use `workspace_list` to see registered projects
 - Use `workspace_add` to register new projects
 - Use `workspace_search` for cross-project impact analysis
 - Use `workspace_commit` for synchronized commits
-
-### QA Experience Recording
-- After successfully solving a problem, proactively ask the user to record it
-- Use `qa_experience_save` to capture the experiment record
-- Before tackling new problems, check `qa_experience_search` for prior patterns
 
 ### Safety First
 - Never execute dangerous commands
@@ -346,19 +387,46 @@ def get_tool_display(name: str, args: dict) -> tuple:
 
     # Memory
     if name == "memory_save":
-        return "💾", f"记忆: {args.get('key', '')}"
-    if name in ("memory_get", "memory_search"):
-        return "🧠", f"回忆: {args.get('key', args.get('query', ''))}"
+        return "💾", f"记忆: [{args.get('category', '')}] {args.get('title', '')}"
+    if name == "memory_get":
+        return "🧠", f"回忆: {args.get('id', '')}"
+    if name == "memory_search":
+        cat = args.get("category", "")
+        tag = args.get("tag", "")
+        suffix = " · ".join(x for x in [cat and f"cat={cat}", tag and f"tag={tag}"] if x)
+        return "🧠", f"回忆: {args.get('query', '')}" + (f"  ({suffix})" if suffix else "")
     if name == "memory_list":
-        return "🧠", "列出记忆"
+        cat = args.get("category", "")
+        return "🧠", f"列出记忆{f' · {cat}' if cat else ''}"
+    if name == "memory_delete":
+        return "🗑️", f"删除记忆: {args.get('id', '')}"
+    if name == "memory_categories":
+        return "🧠", "记忆分类统计"
+    if name == "memory_top_used":
+        return "⭐", "高频经验"
+    if name == "find_email_template":
+        kind = "客户" if args.get("to_customer", True) else "内部"
+        return "📧", f"找{kind}邮件模板: {args.get('query', '')}"
+    if name == "find_jira_template":
+        return "📋", f"找JIRA模板: {args.get('query', '')}"
+    if name == "find_bugfix":
+        return "🐛", f"找Bug修复: {args.get('query', '')}"
+    if name == "find_pipeline":
+        return "🛠️", f"找Pipeline: {args.get('query', '')}"
+    if name == "find_devops_lib":
+        return "🔧", f"找DevOps: {args.get('query', '')}"
+    if name == "find_ai_knowledge":
+        return "🤖", f"找AI知识: {args.get('query', '')}"
     if name in ("scratchpad_write", "scratchpad_append"):
-        return "📝", "写草稿"
+        return "📝", f"写草稿: {args.get('name', 'default')}"
     if name == "scratchpad_read":
-        return "📝", "读草稿"
+        return "📝", f"读草稿: {args.get('name', 'default')}"
     if name == "qa_experience_save":
         return "🎓", f"记录经验: {args.get('title', '')}"
     if name == "qa_experience_search":
         return "🎓", f"搜索经验: {args.get('query', '')}"
+    if name == "qa_experience_get":
+        return "🎓", f"读取经验: {args.get('title', '')}"
 
     # Code Review
     if name == "review_project":

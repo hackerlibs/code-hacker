@@ -341,7 +341,11 @@ cc 默认是单仓库视角的。但真实世界里，"改一下库 + 同步更�
 
 ---
 
-## 六、回到那个反例：逆向工程为什么 cc 不够
+## 六、两个反例：cc 自带 tools 不够的两类场景
+
+抽象的"精准 tool 即精准上下文"再讲一万遍，也不如看两个真实的反例：**逆向工程** 和 **训练模型**。它们看起来风马牛不相及，但底层是同一种困难 —— 你都是在跟一个不会主动开口告诉你内部状态的黑盒打交道，靠"读、试、修、再试"逼近答案。
+
+### 6.1 反例一：逆向工程
 
 群聊里 @GeniusVczh 提到他给微软的 toolchain 加了 debugger 和内存泄漏分析 tools，并且吐槽"微软居然不做"。这是个完美的反例：
 
@@ -349,7 +353,71 @@ cc 默认是单仓库视角的。但真实世界里，"改一下库 + 同步更�
 - 模型 tools：不够 —— cc 默认只能 `Read` / `Bash`，你让模型在终端里手敲 WinDbg 然后用 grep 解析输出？loop 长得吓人，每一步都可能错。
 - 加上专门的 debugger MCP server 之后：模型一次 `debug_get_call_stack(pid=123)` 拿到结构化 stack，一次 `debug_find_leak(snapshot_id=...)` 拿到候选泄漏点。**问题从"模型解不出"变成"模型 5 步解出"**。
 
-这个例子比抽象的论证更有说服力：**同一个模型，加上对的 tools，行为差异不是百分比级别的，是数量级级别的。**
+**同一个模型，加上对的 tools，行为差异不是百分比级别的，是数量级级别的。**
+
+### 6.2 反例二：训练模型本身也是逆向工程
+
+更深一层的反例 —— 也是更近的：**让 agent 帮你训练/改进模型**。如果你直接拿 cc 去迭代一个 LLM 训练脚本，你会发现它根本不知道往哪改，改了之后也不知道好不好，几轮就开始转圈。
+
+为什么？因为训练模型本身就是一个**逆向工程**问题：
+
+- 你没有 ground truth 告诉你"这次 attention 加 dropout 该用 0.1 还是 0.15"。
+- 你唯一的信号是 **跑一次 → 看 metric → 再决定下一步**。
+- 没有"读代码就能想明白"这种近路 —— 模型行为 *只能* 通过实验来探索。
+
+Karpathy 最近开源的 [`karpathy/autoresearch`](https://github.com/karpathy/autoresearch) 把这件事做成了一个极其干净的样本。它的 harness 几乎可以当 ML 领域"精准 tool"的范本来读：
+
+1. **极窄的修改面** —— agent 只能改 `train.py`（包含模型 / optimizer / 训练循环），其他文件锁死。修改空间被 harness 压扁成一个轴。
+2. **固定时间预算** —— 每次实验固定跑 5 分钟，不管硬件多猛多挫。这把"实验"标准化成可比较单元，每小时约 12 次 → 一夜约 100 次实验。
+3. **单一评估指标** —— validation bits-per-byte，一个数字。agent 不需要解读复杂报表，看一个 metric 就能判断"留下还是丢弃"。
+4. **`program.md` 是人写的研究方向** —— harness 不替 agent 决定"今晚研究什么"，但替它处理掉所有"怎么把实验跑起来、怎么比较结果、怎么留下好的改动"这些事务性工作。
+5. **过夜自驱**循环 —— agent 一晚上跑 ~100 次实验，留下有效改动、丢掉无效改动，第二天早上你看一份 diff 加一份指标曲线。
+
+把这套机制拆开看，它其实就是把前面讲过的 **CoT/ToT/ReAct/Reflexion → Harness** 这条演进，落地到了 ML 研究这个具体场景：
+
+| 抽象机制 | autoresearch 里的具体形态 |
+|---|---|
+| ReAct 的 Action 空间 | "改 `train.py`" 这一个动作 |
+| ReAct 的 Observation | 5 分钟后的 bits-per-byte 数字 |
+| Reflexion 的反思 | "上次改 dropout 让 metric 跌了 → 这条路不走" |
+| ToT 的 plan / 搜索 | "今晚我要按 program.md 探索这一族 hyper-param" |
+| 例子引导 | `program.md` 写明的研究方向 + baseline `train.py` 作为起点 |
+| 纠偏机制 | 单一数字 metric + "5 分钟跑完" 的硬时间盒 |
+| 循环机制 | 自动重复 ~100 次的 overnight loop |
+
+**注意"例子引导"和"纠偏机制"这两行**。它们就是用户提到的核心：
+
+- **好的例子（baseline + program.md）告诉 agent "起点在哪、方向是什么"** —— 没有这个，agent 在 ML 搜索空间里就是随机游走。
+- **纠偏机制（单一指标 + 时间盒）告诉 agent "你刚才那步对不对"** —— 没有这个，agent 不会从错误中收敛，只会一直发明新的错。
+- **loop 机制（overnight 自驱）让上述两件事在睡觉时持续发生** —— 没有这个，单步再聪明也只是一次性烟花。
+
+这套东西**不是模型能力**。Sonnet / Opus 已经具备做 ML 研究的推理能力，但你扔一个空白终端给它，它不知道怎么开始、不知道怎么衡量、不知道什么时候停。
+
+> 如果你直接拿 cc 去迭代模型，是不够的。
+>
+> 不是模型不行 —— 是 cc 没给你 "改 `train.py` + 5 分钟跑完 + 看 bpb + overnight 重复" 这套循环；
+> 你必须自己把这套 harness 搭起来，agent 才有得发挥。
+
+这正是 autoresearch 存在的意义：**它就是为"训练模型"这个领域专门定制的 harness**，就像 `code-hacker` 是为"通用编程"专门定制的 harness、@GeniusVczh 的 debugger tools 是为"Windows 逆向"专门定制的 harness 一样。
+
+### 6.3 两个反例合在一起说了什么
+
+把 6.1 和 6.2 并排看，能看出一个更普适的规律：
+
+> 凡是**"靠读源代码无法推理出答案，必须通过实验/观察才能逼近真相"**的任务，cc 自带的 Read/Bash/Grep 一定不够。
+> 你必须把"做实验"这件事本身工具化 —— 一个动作、一个观察、一个比较、一个循环。
+
+逆向工程里"做实验"是 `debug_step` / `read_memory(addr)` / `get_call_stack()`；
+ML 训练里"做实验"是 `run_train_5min()` / `eval_bpb()` / `keep_or_discard()`。
+形式不同，本质相同：**都是把"观察黑盒"这件事压成一个 tool，把"对比 / 纠偏 / 循环"这件事压成一个 harness。**
+
+回到群聊那句"你主要做的东西决定了你要增强的 tools 是什么"——
+- 你做 web → 你需要 browser MCP、HTTP 测试 tool
+- 你做逆向 → 你需要 debugger / memory MCP
+- 你做 ML 研究 → 你需要 autoresearch 这种 train-eval-loop harness
+- 你做通用编程 → 你需要 `code-hacker` 这 62 个 tool
+
+**cc 不替你做任何一种，因为 cc 不知道你在做哪种。** 这恰恰是 harness 设计者存在的价值。
 
 ---
 

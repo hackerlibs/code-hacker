@@ -35,7 +35,190 @@
 
 ---
 
-## 二、code-hacker 是怎么"加手脚"的
+## 二、为什么"harness"这个词最近才出现 —— 从 CoT 到 Harness 的简史
+
+群聊里那句"模型越强，harness 越松"，其实是站在 **过去四年 LLM 推理范式不断打补丁** 的肩膀上才能说出来的。如果不交代这段史，"harness 是什么"这个问题就会悬空。这一节把这段被压缩的发展史展开。
+
+### 1. CoT（Chain-of-Thought, 2022）—— "让模型先把思路写出来"
+
+Wei et al. 那篇著名的 *"Let's think step by step"*。核心发现：
+**只要 prompt 让模型先输出推理过程再给答案，准确率就显著上升。**
+
+CoT 是纯 prompting，没有 tool，没有外部世界，没有反思。模型像一个独自做题的学生，把草稿写在卷子上。
+
+**局限**：
+
+- 一条思维链一旦走偏，就一路错到底。
+- 算不了的就是算不了 —— 没有计算器，没有解释器，没有文件系统。
+- 推理过程是纯文本生成，没有"行动"。
+
+### 2. ToT（Tree-of-Thoughts, 2023）—— "不只是一条链，是一棵树"
+
+Yao et al. 把 CoT 升级成树搜索：每一步生成多个候选思路，估值、剪枝、回溯。本质是把单调的"思维链"扩展成"思维空间的搜索"。
+
+ToT 解决了 CoT "一条道走到黑"的问题，但仍然有两个根本局限：
+
+- 还是关在自己脑子里 —— 没有 tools，不能跟外部世界交互。
+- 计算开销随分支指数爆炸。
+
+ToT 之后大家发现：**与其在脑子里假想分支，不如直接出去走一走 —— 把行动结果作为下一步思考的输入。** 这就引出了 ReAct。
+
+### 3. ReAct（Reasoning + Acting, 2022/2023）—— Agent 的真正起点
+
+Yao et al. 另一篇关键论文。范式：
+
+```
+Thought  → 我应该 grep 一下这个函数在哪被用
+Action   → grep "send_email" -r src/
+Observation → src/notify.py:42, src/billing.py:117
+Thought  → 看起来 billing.py 的调用更可疑，读一下
+Action   → read_file("src/billing.py", lines=110-130)
+Observation → ...
+Thought  → 找到了，问题是这里没 catch SMTPException
+Final Answer → ...
+```
+
+ReAct 干了两件石破天惊的事：
+
+1. **引入"行动"作为一等公民。** 模型不再只生成 token，它还能调用工具改变世界。
+2. **把"观察"塞回上下文。** 行动产生的反馈成为下一轮推理的输入，思维与世界形成闭环。
+
+**这是"agent"这个词从科幻变成工程的拐点。** 后来所有 coding agent —— cc、codex、`code-hacker` —— 主循环本质上都是 ReAct 的变种。
+
+但 ReAct 还有问题：**它只关心"当前这一步该干什么"，不关心"我刚才那条路是不是死路"。** 模型可能在同一个错误判断上反复磨。
+
+### 4. Reflexion / 反思机制（2023）—— "失败之后写一段总结，再来一次"
+
+Shinn et al. 的 Reflexion 引入显式反思。当一次任务失败（测试没过、目标没达成），模型不是简单重试，而是先写一段"反思笔记"塞进上下文，再开下一次尝试。
+
+反思机制 + ReAct = **跨 trial 的学习能力**。模型在一次会话里就能从错误中成长，而不需要重新训练。
+
+到这里，agent 已经具备了：
+
+- **推理**（CoT/ToT）
+- **行动**（ReAct）
+- **反思**（Reflexion）
+
+但还差一件事：**这些机制怎么落到产品里？** 每个项目都自己实现一套 ReAct loop、自己写一套反思 prompt、自己维护一套工具注册表 —— 重复劳动。
+
+### 5. Harness 时代（2024–2026）—— 把上述全部"沉淀"成基础设施
+
+"Harness"（脚手架/挽具）这个词的流行，标志着 agent 从论文范式进入工程范式：
+
+> Harness = 把 **ReAct loop + Reflection + Planning + Tool 编排 + 持久记忆 + 子任务委派** 全部沉淀成一个可复用的 framework，模型只负责"想"和"决策"，其余由 framework 处理。
+
+cc、codex、Cursor Agent 都是 harness。`deepagents` 的 `create_deep_agent` 也是 harness。它们做的事高度收敛 —— 这就是群聊里为什么会说 **"真正的壁垒不在 cc"**，因为 harness 这一层已经被收敛成几乎一样的形状了。
+
+那么到了 harness 时代，差异在哪？两处：
+
+- **模型的推理能力**（这一层 Anthropic / OpenAI 在卷）
+- **Tools 的精准度和领域覆盖**（这一层 *用户* 在卷 —— 这就是 `code-hacker` 在做的事）
+
+CoT → ToT → ReAct → Reflexion → Harness，每一步都是把"原本写在 prompt 里、要求模型自己学会的能力"，**外化成 framework 提供的基础能力**。模型解放出来去做更复杂的判断。
+
+**这条进化轴的箭头是：内化在 prompt → 外化在 framework。** 越外化，越稳定，越可组合。
+
+---
+
+## 三、`create_deep_agent` 把上述演进编译成了什么
+
+理解了上面那段史，再看 `web_app.py` 里那几行就完全是另一种感受：
+
+```python
+# web_app.py:311
+agent = create_deep_agent(
+    model=model,
+    tools=all_tools,             # 62 个 MCP tools — ReAct 的 Action 空间
+    subagents=subagents,         # 4 个 subagent — 任务委派
+    memory=["./AGENTS.md"],      # 持久指令 — Reflection 的长期记忆
+    backend=FilesystemBackend(   # 文件后端 — scratchpad 与 memory 的物理存储
+        root_dir=EXPERT_DIR
+    ),
+    system_prompt=SYSTEM_PROMPT,
+)
+```
+
+`create_deep_agent` 来自 `deepagents`（langchain 团队基于 Claude Code 的"深度智能体"工作流抽象出来的开源 framework）。它做的事，正是把前一节所有历史成果**一次性焊接到主 loop 里**：
+
+| 历史阶段 | 在 `create_deep_agent` 里的对应物 | 在 `code-hacker` 里的体现 |
+|---|---|---|
+| **CoT** —— 让模型写思路 | 默认 system prompt 鼓励"想清楚再动手" | `code-hacker.agent.md` 里 *"Understand First, Act Second"* |
+| **ToT** —— 计划 / 多步搜索 | `TodoListMiddleware` —— 模型写 todo、勾选完成 | TUI / Web 上能看到的"任务列表"流 |
+| **ReAct** —— Tool 调用循环 | 主 loop 本体：interleave tool_call ↔ observation | 62 个 MCP tool 的统一调度 |
+| **Reflexion** —— 反思 / 长期记忆 | `MemoryMiddleware` + `FilesystemBackend` | `./AGENTS.md` 加载为长期记忆；`memory_store` MCP server 把跨会话经验持久化到 CozoDB |
+| **任务委派** —— sub-agent | `subagents=[...]` 参数 | `subagents.yaml` 里的 4 个专家：git_archaeologist / code_scanner / code_reviewer / workspace_coordinator |
+
+也就是说，**`create_deep_agent(...)` 这一行调用背后，是过去四年 agent 范式演进的全部沉淀**。你不需要再手写 ReAct loop，不需要再手动管理 reflection buffer，不需要再为每个子任务起一个新的 chat session —— 这些都被 `middleware` 化了。
+
+### 重点看两个 middleware
+
+#### A. `TodoListMiddleware` —— 把 ToT 的"计划"工业化
+
+模型可以在过程中调 `write_todos([...])` 把任务拆成可勾选的子项，下一步调 `update_todo(id, status="done")`。这等价于把 ToT 的搜索树拍平成一份可见、可改、可恢复的清单。
+
+这件事过去要么靠 system prompt 反复强调，要么靠用户手动拆任务。**`create_deep_agent` 直接把它做成 tool**，模型自然就会用。这就是"约束从 prompt 退到 framework"的典型例子。
+
+#### B. `MemoryMiddleware` + `FilesystemBackend` —— 把 Reflexion 工程化
+
+`memory=["./AGENTS.md"]` 的含义是："这个文件，每次 agent 启动都加载到上下文里作为长期指令"。`FilesystemBackend` 则给了一个工作目录，让 agent 可以读写跨 turn 持久的文件。
+
+但 `code-hacker` 把这一层又向前推了一步 —— **`memory_store.py` 这个 MCP server 是一个真正的 CozoDB 后端、带分类 finder 的结构化经验库**：
+
+- Reflexion 论文里说"agent 写反思笔记进 context" → `code-hacker` 里说"agent 把可复用经验写进 CozoDB，下次用 `find_pipeline(query=...)` 精准取出"。
+- 论文里的反思是 *会话级* 的，下次新会话就丢了 → `memory_store` 是 *跨会话、跨项目、可分类、按使用频次排序* 的。
+
+这是一个层层加码的关系：
+**`create_deep_agent` 提供了 generic 的 memory 能力 → `code-hacker` 在 generic memory 之上又叠了一个领域专用的 memory server。** 群聊里的"精准 tool 即精准上下文"在这里被推到了极致 —— 连记忆本身都按领域分类了。
+
+### Subagents = 任务委派的工业化
+
+`create_deep_agent` 提供了一个内建的 `task` 工具：主 agent 可以把一个子任务委派给某个 subagent，subagent 用自己的 model（通常更便宜的 Haiku）+ 自己的 system_prompt + 自己的 tool 子集 跑，跑完只返回一份**压缩过的报告**给主 agent。
+
+这是一个非常重要的设计：
+
+- **主 agent 的 context 不会被 subagent 内部那一堆 grep / read 噪声塞满。**
+- **subagent 用便宜的模型也能跑得不错，因为它的 tool 子集精准、任务范围小。**
+
+回到群聊那句"精准 tool 即精准上下文"—— subagent 机制就是**把这条原则递归地应用到 agent 自己身上**：每个 subagent 都是更小、更聚焦、tool 更精的"专属 mini agent"。
+
+看 `subagents.yaml` 里 `git_archaeologist` 的定义：它只拿到 7 个 tool（git_status / git_diff / git_log / git_show / git_branch / git_blame / read_file / search_files_ag），不能写文件、不能改 git 状态、不能跨项目操作。**约束 = 安全 + 聚焦 = 更好的输出。**
+
+### 一图总结
+
+```
+        ┌─────────────────── create_deep_agent ────────────────────┐
+        │                                                          │
+        │   ┌─ CoT/ToT  →  TodoListMiddleware     ──┐              │
+        │   ┌─ ReAct    →  主 tool-call loop      ──┤   主 agent   │
+        │   ┌─ Reflexion→  MemoryMiddleware       ──┤   (Sonnet)   │
+        │   ┌─ Delegate →  subagents + task tool  ──┘              │
+        │                                                          │
+        │                       │                                   │
+        │                       ▼                                   │
+        │            ┌──────────────────────┐                       │
+        │            │  62 个 MCP tools     │  ← code-hacker 加的   │
+        │            │  (6 个 MCP server)   │     "领域专属手脚"     │
+        │            └──────────────────────┘                       │
+        │                       │                                   │
+        │                       ▼                                   │
+        │   ┌──────────┬────────────┬────────────┬─────────────┐    │
+        │   │ Git Arch │ CodeScanner│ Reviewer   │ Workspace   │    │
+        │   │(Haiku)   │ (Haiku)    │ (Haiku)    │ Coordinator │    │
+        │   │ 7 tools  │ 8 tools    │ 10 tools   │ (Haiku)     │    │
+        │   └──────────┴────────────┴────────────┴─────────────┘    │
+        │             4 个 subagent，各自 tool 子集精准              │
+        └──────────────────────────────────────────────────────────┘
+```
+
+可以这样总结：
+
+> **`create_deep_agent` 把 CoT/ToT/ReAct/Reflexion 编译成了 middleware；`code-hacker` 在这些 middleware 之上，又叠了一层专门为"写代码"打磨的 62 个 tool 和 4 个 subagent。**
+
+前者是 *agent 范式* 的工业化，后者是 *领域能力* 的工业化。两者合起来，才是群聊里说的那个"模型越强 harness 越松，但 tools 必须越来越精准"的完整答案。
+
+---
+
+## 四、code-hacker 是怎么"加手脚"的
 
 `code-hacker` 不是又一个 agent UI，它的核心定位是一个**专为编程任务设计的 tool 阵列**。三个前端（VS Code Custom Agent、`web_app.py`、`tui_app.py`）共享同一套后端 —— **6 个 MCP server，62+ 个 tool**。
 
@@ -111,7 +294,7 @@ cc 默认是单仓库视角的。但真实世界里，"改一下库 + 同步更�
 
 ---
 
-## 三、harness 设计的几条第一性原理
+## 五、harness 设计的几条第一性原理
 
 把上面这些放在一起，可以提炼出几条我认为做 agent harness 的人都应该认账的原理：
 
@@ -158,7 +341,7 @@ cc 默认是单仓库视角的。但真实世界里，"改一下库 + 同步更�
 
 ---
 
-## 四、回到那个反例：逆向工程为什么 cc 不够
+## 六、回到那个反例：逆向工程为什么 cc 不够
 
 群聊里 @GeniusVczh 提到他给微软的 toolchain 加了 debugger 和内存泄漏分析 tools，并且吐槽"微软居然不做"。这是个完美的反例：
 
@@ -170,7 +353,7 @@ cc 默认是单仓库视角的。但真实世界里，"改一下库 + 同步更�
 
 ---
 
-## 五、对 `code-hacker` 使用者 / 贡献者的几条具体建议
+## 七、对 `code-hacker` 使用者 / 贡献者的几条具体建议
 
 1. **不要把 `code-hacker` 当 "另一个 Claude Code 替代品" 用。** 它的价值在于那 62 个 tool，尤其是 cc 没有的那批（ydiff、multi-project、memory_store 分类 finder）。要让模型真的用上这些 tool —— 例如，你提的问题里直接说"用 ydiff 看看这个 commit"。
 
@@ -184,7 +367,7 @@ cc 默认是单仓库视角的。但真实世界里，"改一下库 + 同步更�
 
 ---
 
-## 六、结语
+## 八、结语
 
 那段微信群聊里其实藏着一个挺反直觉的结论：**在 cc 和 codex 这个档位上继续比 harness 是不划算的**（这俩已经收敛了）；接下来真正能拉开差距的，是**你愿不愿意为自己的领域做专属 tools**。
 

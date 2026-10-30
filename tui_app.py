@@ -18,6 +18,8 @@ import json
 import os
 import sys
 import signal
+import socket
+from urllib.parse import urlparse
 import warnings
 from pathlib import Path
 from contextlib import AsyncExitStack
@@ -83,6 +85,16 @@ THEME = Theme({
 })
 
 console = Console(theme=THEME)
+
+def _port_open(url: str, timeout: float = 1.0) -> bool:
+    """Quick TCP probe so a down server fails fast instead of hanging initialize()."""
+    u = urlparse(url)
+    try:
+        with socket.create_connection((u.hostname, u.port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
 
 # ─── Reuse models and config from web_app ─────────────────────────────────
 
@@ -468,19 +480,29 @@ class CodeHackTUI:
         console.print()
 
         for server_name, url in MCP_SERVERS.items():
+            if not _port_open(url):
+                self.print_server_status(server_name, 0, False)
+                continue
+            local = AsyncExitStack()
             try:
-                transport = await self._exit_stack.enter_async_context(
-                    streamablehttp_client(url)
-                )
-                read_stream, write_stream, _ = transport
-                session = await self._exit_stack.enter_async_context(
-                    ClientSession(read_stream, write_stream)
-                )
-                await session.initialize()
-                tools = await load_mcp_tools(session, server_name=server_name)
+                async with asyncio.timeout(15):
+                    transport = await local.enter_async_context(streamablehttp_client(url))
+                    read_stream, write_stream, _ = transport
+                    session = await local.enter_async_context(
+                        ClientSession(read_stream, write_stream)
+                    )
+                    await session.initialize()
+                    tools = await load_mcp_tools(session, server_name=server_name)
                 all_tools.extend(tools)
+                # 成功: 把生命周期交给主 stack
+                self._exit_stack.push_async_exit(local.pop_all())
                 self.print_server_status(server_name, len(tools), True)
-            except Exception as e:
+            except Exception:
+                # 失败: 在同一个 task 内立即清理, 避免 cancel scope 跨 task 报错
+                try:
+                    await local.aclose()
+                except BaseException:
+                    pass
                 self.print_server_status(server_name, 0, False)
 
         console.print()

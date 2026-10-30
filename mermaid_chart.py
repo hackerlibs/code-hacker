@@ -13,7 +13,7 @@ import webbrowser
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("mermaid-chart")
+mcp = FastMCP(name="mermaid-chart", host="localhost", port=8008)
 
 # ─── HTML 模板 ─────────────────────────────────────────────────────────────
 
@@ -486,4 +486,4 @@ async def open_chart(file_path: str) -> str:
 
 # ─── 入口 ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    mcp.run(transport="sse", host="0.0.0.0", port=8008)
+    mcp.run(transport="streamable-http")

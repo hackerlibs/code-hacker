@@ -19,7 +19,8 @@ $Servers = @(
     @{ Script = "code_intel.py";    Port = 8003; Name = "code-intel" },
     @{ Script = "memory_store.py";  Port = 8004; Name = "memory-store" },
     @{ Script = "code_review.py";   Port = 8005; Name = "code-review" },
-    @{ Script = "multi_project.py"; Port = 8007; Name = "multi-project" }
+    @{ Script = "multi_project.py"; Port = 8007; Name = "multi-project" },
+    @{ Script = "mermaid_chart.py"; Port = 8008; Name = "mermaid-chart" }
 )
 
 if ($Status) {

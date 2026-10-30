@@ -19,6 +19,7 @@ SERVERS=(
     "memory_store.py:8004"
     "code_review.py:8005"
     "multi_project.py:8007"
+    "mermaid_chart.py:8008"
 )
 
 # ─── Resolve Python command (uv > .venv > system python) ─────────────

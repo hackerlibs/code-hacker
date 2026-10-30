@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 import warnings
 from pathlib import Path
 from contextlib import asynccontextmanager, AsyncExitStack
@@ -44,6 +45,11 @@ from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 
 EXPERT_DIR = Path(__file__).parent
+
+# Agent step budget. deepagents hard-binds recursion_limit=1000 via
+# .with_config(); the runtime config passed to astream/ainvoke overrides it
+# (subagents inherit the runtime value too).
+RECURSION_LIMIT = int(os.environ.get("DEEPAGENT_RECURSION_LIMIT", "10000"))
 
 # ─── Global State ──────────────────────────────────────────────────────────
 agent = None
@@ -526,7 +532,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for chat."""
     await websocket.accept()
 
-    thread_id = f"web-{id(websocket)}"
+    thread_id = f"web-{uuid.uuid4()}"
     printed_count = 0
 
     try:
@@ -543,7 +549,10 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 async for chunk in agent.astream(
                     {"messages": [("user", user_message)]},
-                    config={"configurable": {"thread_id": thread_id}},
+                    config={
+                        "configurable": {"thread_id": thread_id},
+                        "recursion_limit": RECURSION_LIMIT,
+                    },
                     stream_mode="values",
                 ):
                     if "messages" in chunk:

@@ -120,6 +120,131 @@ def _port_open(url: str, timeout: float = 1.0) -> bool:
         return False
 
 
+# ─── Workdir-aware MCP tool interception ──────────────────────────────────
+#
+# MCP servers run as separate processes started by start_servers.sh with their
+# CWD fixed to this repo. os.chdir(workdir) in the TUI process cannot reach
+# them, so relative path args ("." / "src/foo.py") sent to MCP tools would be
+# resolved against the *server's* CWD, not the user's workdir.
+#
+# This interceptor rewrites relative path arguments to workdir-anchored
+# absolute paths before each MCP tool call, so the agent's relative paths
+# always mean "inside the workdir".
+
+# tool name -> {arg name: has "."-default}.
+# Only args that denote a path *relative to the working root* are listed.
+# Args like git's file_path (relative to the repo) or workspace_* file_path
+# (relative to a registered project) keep their own semantics and are NOT
+# rewritten. The boolean marks args whose server-side default is "." —
+# when such an arg is omitted, the workdir is injected explicitly.
+TOOL_PATH_ARGS: dict[str, dict[str, bool]] = {
+    # filesystem-command
+    "read_file": {"file_path": False},
+    "read_file_lines": {"file_path": False},
+    "write_file": {"file_path": False},
+    "append_file": {"file_path": False},
+    "edit_file": {"file_path": False},
+    "list_directory": {"directory_path": True},
+    "get_file_info": {"file_path": False},
+    "find_files": {"directory": True},
+    "search_files_ag": {"search_path": True},
+    "create_directory": {"directory_path": False},
+    "execute_command": {"working_directory": True},
+    # git-tools (repo_path default ".")
+    "git_status": {"repo_path": True},
+    "git_diff": {"repo_path": True},
+    "git_log": {"repo_path": True},
+    "git_show": {"repo_path": True},
+    "git_branch": {"repo_path": True},
+    "git_add": {"repo_path": True},
+    "git_commit": {"repo_path": True},
+    "git_checkout": {"repo_path": True},
+    "git_create_branch": {"repo_path": True},
+    "git_stash": {"repo_path": True},
+    "git_blame": {"repo_path": True},
+    # code-intel
+    "analyze_python_file": {"file_path": False},
+    "extract_symbols": {"file_path": False},
+    "dependency_graph": {"file_path": False},
+    "project_overview": {"directory": True},
+    "find_references": {"directory": True},
+    # code-review
+    "review_file": {"file_path": False},
+    "review_function": {"file_path": False},
+    "ydiff_files": {"file_path1": False, "file_path2": False},
+    "review_project": {"project_dir": False},
+    "health_score": {"project_dir": False},
+    "find_long_functions": {"project_dir": False},
+    "find_complex_functions": {"project_dir": False},
+    "suggest_reorg": {"project_dir": False},
+    "ydiff_commit": {"project_dir": False},
+    "ydiff_git_changes": {"project_dir": False},
+    # multi-project
+    "workspace_add": {"project_path": False},
+}
+
+
+def _resolve_path_arg(value, workdir: Path):
+    """Rewrite a relative path arg into a workdir-anchored absolute path.
+
+    Absolute paths, empty values and non-str values pass through untouched.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return value
+    p = Path(value).expanduser()
+    if p.is_absolute():
+        # canonicalize (~ expansion included) so the server never sees "~"
+        return str(p)
+    # Path("."), "src/foo.py", "…" all resolve under the workdir.
+    return str((workdir / p).resolve())
+
+
+class WorkdirPathInterceptor:
+    """MCP tool-call interceptor that anchors relative paths to the workdir.
+
+    Installed via load_mcp_tools(tool_interceptors=[...]); rewrites the
+    request args for tools listed in TOOL_PATH_ARGS, then delegates to the
+    real handler. get_current_directory has no args to rewrite, so it is
+    short-circuited to answer with the workdir directly.
+    """
+
+    def __init__(self, workdir: Path):
+        self.workdir = workdir
+
+    async def __call__(self, request, handler):
+        tool = request.name
+        args = dict(request.args or {})
+
+        if tool == "get_current_directory":
+            from mcp.types import CallToolResult, TextContent
+            return CallToolResult(
+                content=[TextContent(
+                    type="text",
+                    text=f"Current working directory: {self.workdir}",
+                )]
+            )
+
+        path_params = TOOL_PATH_ARGS.get(tool)
+        if path_params:
+            changed = False
+            for param, has_dot_default in path_params.items():
+                if param in args:
+                    new_val = _resolve_path_arg(args[param], self.workdir)
+                    if new_val != args[param]:
+                        args[param] = new_val
+                        changed = True
+                elif has_dot_default:
+                    # Arg omitted, server default is ".": that would resolve
+                    # against the *server's* CWD. Inject the workdir so the
+                    # default behaves as the user's current directory.
+                    args[param] = str(self.workdir)
+                    changed = True
+            if changed:
+                request = request.override(args=args)
+
+        return await handler(request)
+
+
 # ─── Reuse models and config from web_app ─────────────────────────────────
 
 def get_llm_model() -> ChatOpenAI:
@@ -252,6 +377,13 @@ When changes involve both structural reorganization and logic modifications, **s
 2. **Logic commit** → normal commit (behavior changes, bug fixes, new features — reviewer must read)
 
 Reviewers use `git log --grep="#not-need-review" --invert-grep` to skip mechanical changes.
+
+## Working Directory
+
+Your current working directory (workdir) is `{workdir}`. Relative paths you pass to tools
+(files, directories, repo paths) are automatically resolved against this directory — e.g.
+`"src/foo.py"` means `{workdir}/src/foo.py`, and `"."` means `{workdir}` itself. Absolute
+paths pass through unchanged. This is also what `get_current_directory` returns.
 """
 
 
@@ -607,7 +739,11 @@ class CodeHackTUI:
                         ClientSession(read_stream, write_stream)
                     )
                     await session.initialize()
-                    tools = await load_mcp_tools(session, server_name=server_name)
+                    tools = await load_mcp_tools(
+                        session,
+                        server_name=server_name,
+                        tool_interceptors=[WorkdirPathInterceptor(self.work_dir)],
+                    )
                 all_tools.extend(tools)
                 # 成功: 把生命周期交给主 stack
                 self._exit_stack.push_async_exit(local.pop_all())
@@ -641,7 +777,9 @@ class CodeHackTUI:
             subagents=subagents,
             memory=memory_files,
             backend=FilesystemBackend(root_dir=self.work_dir),
-            system_prompt=SYSTEM_PROMPT,
+            # .replace, not .format: the prompt body contains other braces
+            # (tool signatures) that must survive untouched.
+            system_prompt=SYSTEM_PROMPT.replace("{workdir}", str(self.work_dir)),
             checkpointer=self.checkpointer,
         )
 

@@ -4,3 +4,4 @@ ydiff_*.html
 .mcp_pids/
 .agent-memory/
 __pycache__/
+.sessions/

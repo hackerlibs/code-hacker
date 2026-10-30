@@ -74,7 +74,7 @@ OPENROUTER_API_KEY=your-key uv run python web_app.py
 
 ```bash
 # Start the TUI (requires OPENROUTER_API_KEY)
-OPENROUTER_API_KEY=your-key uv run python tui_app.py
+OPENROUTER_API_KEY=your-key uv run python tui_app.py [workdir] [--continue | --resume <session-id> | --no-session]
 ```
 
 The TUI provides a **Claude Code-style terminal experience** — interactive prompt, streaming Markdown output with syntax highlighting, real-time tool call display (`⏵ Read` → `✓ Read`), command history (↑/↓), and slash commands (`/help`, `/clear`, `/status`, `/quit`). Built on Rich + prompt_toolkit, no extra dependencies required.
@@ -582,16 +582,25 @@ The web app connects to all 6 MCP servers, loads 62+ tools, creates a DeepAgent 
 # Set your API key
 export OPENROUTER_API_KEY=your-key
 
-# Start the TUI
+# Start the TUI (current directory is the working directory)
 uv run python tui_app.py
+
+# Or choose a working directory
+uv run python tui_app.py /path/to/project
 ```
 
 The TUI provides the same DeepAgent backend as the web app but with a terminal-native interface:
 - **Streaming output** with Rich Markdown rendering and syntax highlighting
 - **Tool call display** in Claude Code style: `⏵ Read file.py` → `✓ Read`
 - **Command history** with ↑/↓ arrow keys
-- **Slash commands**: `/help`, `/clear`, `/status`, `/quit`
+- **Slash commands**: `/help`, `/clear`, `/status`, `/sessions`, `/quit`
 - **Interrupt support**: Ctrl+C to cancel current operation
+- **Working directory**: pass a path argument — the DeepAgent filesystem backend, `ls`/`glob`/`grep`, and `./AGENTS.md` memory all resolve against it
+- **Sessions** (Claude Code style): every run gets a session id; the conversation is checkpointed to `<workdir>/.sessions/tui_sessions.sqlite`
+  - `uv run python tui_app.py --continue` — resume the most recent session
+  - `uv run python tui_app.py --resume <session-id>` — resume a specific session
+  - `/sessions` — list saved sessions; `/quit` — shows the session id for later resume
+  - `--no-session` — disable persistence
 
 Ideal for SSH sessions, headless servers, or developers who prefer staying in the terminal.
 

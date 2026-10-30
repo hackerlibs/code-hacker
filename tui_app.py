@@ -9,18 +9,28 @@ Usage:
     # 1. Start all MCP servers:
     bash start_servers.sh
 
-    # 2. Start the TUI:
-    uv run python tui_app.py
+    # 2. Start the TUI (optionally with a working directory):
+    uv run python tui_app.py            # current directory is the workdir
+    uv run python tui_app.py /path/to/project
+
+    # 3. Sessions (persistent conversation history, like Claude Code):
+    uv run python tui_app.py --continue            # resume the most recent session
+    uv run python tui_app.py --resume <uuid>       # resume a specific session
+    uv run python tui_app.py                        # start a new session (uuid)
+    # In-session: /sessions lists past sessions, /quit shows the session id.
 """
 
+import argparse
 import asyncio
 import json
 import os
 import sys
 import signal
 import socket
+import uuid as uuid_mod
 from urllib.parse import urlparse
 import warnings
+from datetime import datetime
 from pathlib import Path
 from contextlib import AsyncExitStack
 
@@ -55,10 +65,24 @@ from langchain_mcp_adapters.tools import load_mcp_tools
 import yaml
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
+from langgraph.errors import GraphRecursionError
 
 # ─── Constants ────────────────────────────────────────────────────────────
 
 EXPERT_DIR = Path(__file__).parent
+
+# Working directory: set via CLI argument. FilesystemBackend root, relative
+# paths of built-in tools (ls/glob/grep), and ./AGENTS.md memory all resolve
+# against this directory. Defaults to the process CWD at startup.
+WORK_DIR = Path.cwd().resolve()
+
+# Session checkpoint database (conversation persistence, like Claude Code).
+SESSIONS_DIR = Path(os.environ.get("TUI_SESSIONS_DIR", "./.sessions"))
+
+# Agent step budget. deepagents hard-binds recursion_limit=1000 via
+# .with_config(); the runtime config passed to astream/ainvoke overrides it
+# (verified: subagents inherit the runtime value too).
+RECURSION_LIMIT = int(os.environ.get("DEEPAGENT_RECURSION_LIMIT", "10000"))
 
 MCP_SERVERS = {
     "filesystem-command": "http://localhost:8001/mcp",
@@ -436,13 +460,104 @@ def get_content_as_string(content) -> str:
     return str(content)
 
 
+# ─── Session Persistence ─────────────────────────────────────────────────
+
+def _session_db_path() -> Path:
+    """Sessions DB lives under the working directory (./.sessions/)."""
+    db = (WORK_DIR / SESSIONS_DIR / "tui_sessions.sqlite").resolve()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    return db
+
+
+def _list_saved_sessions(limit: int = 20) -> list:
+    """List saved sessions (sync, for the /sessions command).
+
+    Returns a list of (session_id, updated_at, message_count, preview) tuples,
+    newest first.
+    """
+    import sqlite3
+    from langchain_core.messages import HumanMessage
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    db_path = _session_db_path()
+    if not db_path.exists():
+        return []
+
+    serde = JsonPlusSerializer()
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    try:
+        # checkpoint ids are time-ordered uuid6, so MAX() = most recent.
+        # A brand-new DB has no tables until the first agent run creates
+        # them (saver.setup() is lazy) — treat that as "no sessions".
+        try:
+            latest = conn.execute(
+                """
+                SELECT thread_id, MAX(checkpoint_id) AS latest
+                FROM checkpoints
+                WHERE checkpoint_ns = ''
+                GROUP BY thread_id
+                ORDER BY latest DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        if not latest:
+            return []
+        rows = []
+        for thread_id, latest_id in latest:
+            row = conn.execute(
+                """
+                SELECT type, checkpoint FROM checkpoints
+                WHERE thread_id = ? AND checkpoint_ns = '' AND checkpoint_id = ?
+                """,
+                (thread_id, latest_id),
+            ).fetchone()
+            if row:
+                rows.append((thread_id, *row))
+    finally:
+        conn.close()
+
+    entries = []
+    for thread_id, ser_type, checkpoint_blob in rows:
+        try:
+            checkpoint = serde.loads_typed((ser_type, checkpoint_blob))
+            messages = checkpoint.get("channel_values", {}).get("messages", [])
+            n_msgs = len(messages)
+            ts = checkpoint.get("ts")
+            updated = datetime.fromisoformat(ts) if ts else None
+            first_human = next(
+                (m for m in messages if isinstance(m, HumanMessage)), None
+            )
+            preview = first_human.content if first_human else ""
+            if isinstance(preview, list):
+                preview = " ".join(
+                    p.get("text", "") if isinstance(p, dict) else str(p) for p in preview
+                )
+            preview = str(preview).replace("\n", " ").strip()[:60]
+        except Exception:
+            n_msgs, updated, preview = 0, None, "(unreadable)"
+        entries.append((thread_id, updated, n_msgs, preview))
+    return entries
+
+
+def _find_most_recent_session() -> str | None:
+    """Return the most recently updated session id, or None."""
+    entries = _list_saved_sessions(limit=1)
+    return entries[0][0] if entries else None
+
+
 # ─── TUI Application ─────────────────────────────────────────────────────
 
 class CodeHackTUI:
-    def __init__(self):
+    def __init__(self, work_dir: Path, session_id: str, checkpointer=None, resume: bool = False):
         self.agent = None
         self._exit_stack = None
-        self.thread_id = "tui-session"
+        self.work_dir = work_dir
+        self.session_id = session_id
+        self.checkpointer = checkpointer
+        self.resume = resume
         self.history = InMemoryHistory()
         self.running = True
 
@@ -516,13 +631,18 @@ class CodeHackTUI:
 
         console.print()
 
+        # Memory: load AGENTS.md from the working directory (silently skipped
+        # if missing — MemoryMiddleware treats file_not_found as optional).
+        memory_files = ["./AGENTS.md"] if (self.work_dir / "AGENTS.md").exists() else None
+
         self.agent = create_deep_agent(
             model=model,
             tools=all_tools,
             subagents=subagents,
-            memory=["./AGENTS.md"],
-            backend=FilesystemBackend(root_dir=EXPERT_DIR),
+            memory=memory_files,
+            backend=FilesystemBackend(root_dir=self.work_dir),
             system_prompt=SYSTEM_PROMPT,
+            checkpointer=self.checkpointer,
         )
 
     async def cleanup(self):
@@ -531,14 +651,30 @@ class CodeHackTUI:
 
     async def process_message(self, user_message: str):
         """Stream agent response for a user message."""
+        # When resuming a persisted session, the checkpoint already contains
+        # prior messages — the first values-chunk replays them all. Start
+        # printing from the end of the existing history to skip the replay.
         printed_count = 0
+        if self.checkpointer:
+            try:
+                snapshot = await self.agent.aget_state(
+                    {"configurable": {"thread_id": self.session_id}}
+                )
+                if snapshot and snapshot.values and "messages" in snapshot.values:
+                    printed_count = len(snapshot.values["messages"])
+            except Exception:
+                pass
+
         pending_tools = {}  # tool_call_id -> name
         accumulated_text = ""
 
         try:
             async for chunk in self.agent.astream(
                 {"messages": [("user", user_message)]},
-                config={"configurable": {"thread_id": self.thread_id}},
+                config={
+                    "configurable": {"thread_id": self.session_id},
+                    "recursion_limit": RECURSION_LIMIT,
+                },
                 stream_mode="values",
             ):
                 if "messages" not in chunk:
@@ -584,6 +720,11 @@ class CodeHackTUI:
 
         except KeyboardInterrupt:
             console.print("\n  [yellow]⚡ Interrupted[/yellow]")
+        except GraphRecursionError:
+            console.print(
+                f"\n  [bold red]Error:[/bold red] Recursion limit of {RECURSION_LIMIT} reached. "
+                "The task is too long for one run — try splitting it into smaller steps."
+            )
         except Exception as e:
             console.print(f"\n  [bold red]Error:[/bold red] {e}")
 
@@ -596,9 +737,16 @@ class CodeHackTUI:
         # Show config info
         model_name = os.environ.get("LLM_MODEL", "anthropic/claude-sonnet-4-5-20250514")
         console.print(f"  [dim]Model:[/dim]    {model_name}")
-        console.print(f"  [dim]CWD:[/dim]      {Path.cwd()}")
+        console.print(f"  [dim]Workdir:[/dim]  {self.work_dir}")
+        if self.checkpointer:
+            session_state = "[dim]resumed[/dim]" if self.resume else "[dim]new[/dim]"
+            console.print(f"  [dim]Session:[/dim]  [bold cyan]{self.session_id}[/bold cyan] [dim]({session_state})[/dim]")
 
         await self.init_agent()
+
+        # After a resume, show what was restored
+        if self.resume and self.checkpointer:
+            self._print_restored_history()
 
         # Print help
         console.print(Rule(style="dim green"))
@@ -606,7 +754,8 @@ class CodeHackTUI:
         console.print("  [cyan]/help[/cyan]    [dim]— Show help[/dim]")
         console.print("  [cyan]/clear[/cyan]   [dim]— Clear screen[/dim]")
         console.print("  [cyan]/status[/cyan]  [dim]— Show connection status[/dim]")
-        console.print("  [cyan]/quit[/cyan]    [dim]— Exit[/dim]")
+        console.print("  [cyan]/sessions[/cyan] [dim]— List past sessions[/dim]")
+        console.print("  [cyan]/quit[/cyan]    [dim]— Exit (shows session id)[/dim]")
         console.print(Rule(style="dim green"))
         console.print()
 
@@ -627,7 +776,7 @@ class CodeHackTUI:
                 if user_input.startswith("/"):
                     cmd = user_input.lower().split()[0]
                     if cmd in ("/quit", "/exit", "/q"):
-                        console.print("  [dim]Goodbye![/dim]")
+                        self._print_farewell()
                         break
                     elif cmd == "/clear":
                         console.clear()
@@ -638,6 +787,14 @@ class CodeHackTUI:
                         continue
                     elif cmd == "/status":
                         self._print_status()
+                        continue
+                    elif cmd == "/sessions":
+                        self._print_sessions()
+                        continue
+                    elif cmd == "/resume":
+                        self._print_sessions()
+                        console.print("  [dim]To resume a session, restart with:[/dim]")
+                        console.print("  [cyan]--resume <session-id>[/cyan] [dim]or[/dim] [cyan]--continue[/cyan]")
                         continue
                     # Otherwise treat as regular message (e.g. /review could be a prompt)
 
@@ -663,6 +820,50 @@ class CodeHackTUI:
 
         await self.cleanup()
 
+    def _print_farewell(self):
+        """Goodbye message with the session id (Claude Code style)."""
+        console.print()
+        if self.checkpointer:
+            console.print(f"  [dim]Session saved:[/dim] [bold cyan]{self.session_id}[/bold cyan]")
+            console.print(
+                f"  [dim]Resume with:[/dim] [green]--resume {self.session_id}[/green] [dim]or[/dim] [green]--continue[/green]"
+            )
+        console.print("  [dim]Goodbye![/dim]")
+
+    def _print_restored_history(self):
+        """Show a hint after resuming a persisted session."""
+        console.print("  [dim]✓ Conversation history restored from checkpoint.[/dim]")
+
+    def _print_sessions(self):
+        """List past sessions from the checkpoint database."""
+        if not self.checkpointer:
+            console.print("  [yellow]Sessions are disabled[/yellow] [dim]— no checkpoint database in use[/dim]")
+            return
+        try:
+            entries = _list_saved_sessions()
+        except Exception as e:
+            console.print(f"  [bold red]Error listing sessions:[/bold red] {e}")
+            return
+
+        if not entries:
+            console.print("  [dim]No saved sessions yet.[/dim]")
+            return
+
+        table = Table(box=None, padding=(0, 2))
+        table.add_column("Session", style="cyan", no_wrap=True)
+        table.add_column("Updated", style="dim")
+        table.add_column("Messages", justify="right", style="dim")
+        table.add_column("First message", style="white", overflow="fold")
+
+        for sid, ts, n_msgs, preview in entries:
+            updated = ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "-"
+            table.add_row(sid, updated, str(n_msgs), preview)
+
+        console.print()
+        console.print(Panel(table, title="[bold green]Saved Sessions[/bold green]", border_style="green"))
+        console.print("  [dim]Resume with: tui_app.py --resume <session-id>[/dim]")
+        console.print()
+
     def _print_help(self):
         """Print help information."""
         console.print()
@@ -673,7 +874,8 @@ class CodeHackTUI:
         help_text.add_row("/help", "Show this help")
         help_text.add_row("/clear", "Clear screen")
         help_text.add_row("/status", "Show MCP server status")
-        help_text.add_row("/quit", "Exit")
+        help_text.add_row("/sessions", "List saved sessions")
+        help_text.add_row("/quit", "Exit (shows session id)")
         help_text.add_row("", "")
         help_text.add_row("Ctrl+C", "Interrupt current operation")
         help_text.add_row("↑/↓", "Navigate command history")
@@ -694,8 +896,9 @@ class CodeHackTUI:
         table.add_row("Model", f"[bold]{model_name}[/bold]")
         table.add_row("Subagent", f"[bold]{sub_model}[/bold]")
         table.add_row("Servers", f"[bold green]{len(MCP_SERVERS)}[/bold green] MCP servers")
-        table.add_row("Thread", f"[dim]{self.thread_id}[/dim]")
-        table.add_row("CWD", f"{Path.cwd()}")
+        table.add_row("Session", f"[dim]{self.session_id}[/dim]")
+        table.add_row("Workdir", f"{self.work_dir}")
+        table.add_row("Limit", f"[bold]{RECURSION_LIMIT}[/bold] recursion steps")
 
         console.print(Panel(table, title="[bold green]Status[/bold green]", border_style="green", width=60))
         console.print()
@@ -703,18 +906,113 @@ class CodeHackTUI:
 
 # ─── Entry Point ──────────────────────────────────────────────────────────
 
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(
+        prog="tui_app.py",
+        description="Code Hack AI Expert — Claude Code-style TUI",
+        epilog="Examples:\n"
+               "  python tui_app.py                    # new session, CWD as workdir\n"
+               "  python tui_app.py /path/to/project   # choose the working directory\n"
+               "  python tui_app.py --continue         # resume the most recent session\n"
+               "  python tui_app.py --resume <uuid>     # resume a specific session\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "workdir",
+        nargs="?",
+        default=None,
+        help="working directory (default: current directory)",
+    )
+    parser.add_argument(
+        "--continue", "-c",
+        dest="continue_session",
+        action="store_true",
+        help="resume the most recent session",
+    )
+    parser.add_argument(
+        "--resume", "-r",
+        dest="resume_session",
+        metavar="SESSION_ID",
+        default=None,
+        help="resume a specific session by id",
+    )
+    parser.add_argument(
+        "--no-session",
+        dest="no_session",
+        action="store_true",
+        help="disable session persistence (no checkpoint db)",
+    )
+    return parser.parse_args(argv)
+
+
+async def _run_tui(args) -> int:
+    global WORK_DIR
+
+    # ── Resolve the working directory BEFORE anything else ──
+    if args.workdir:
+        wd = Path(args.workdir).expanduser().resolve()
+        if not wd.is_dir():
+            console.print(f"[bold red]Error:[/bold red] Not a directory: {wd}")
+            return 1
+    else:
+        wd = Path.cwd().resolve()
+    WORK_DIR = wd
+    # chdir so MCP servers spawned later (if any) and relative paths in
+    # subprocesses inherit the same workdir; FilesystemBackend also uses it.
+    os.chdir(wd)
+
+    # ── Resolve the session id ──
+    checkpointer = None
+    resume = False
+
+    if args.resume_session:
+        session_id = args.resume_session.strip()
+        resume = True
+    elif args.continue_session:
+        session_id = _find_most_recent_session()
+        if not session_id:
+            console.print("[bold red]Error:[/bold red] No saved session found to continue.")
+            return 1
+        resume = True
+    else:
+        session_id = str(uuid_mod.uuid4())
+
+    session_conn = None
+    if not args.no_session:
+        import aiosqlite
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        db_path = _session_db_path()
+        session_conn = await aiosqlite.connect(str(db_path))
+        checkpointer = AsyncSqliteSaver(session_conn)
+
+    tui = CodeHackTUI(
+        work_dir=wd,
+        session_id=session_id,
+        checkpointer=checkpointer,
+        resume=resume,
+    )
+
+    exit_code = 0
+    try:
+        await tui.run()
+    except KeyboardInterrupt:
+        console.print("\n  [dim]Shutting down...[/dim]")
+    finally:
+        await tui.cleanup()
+        if session_conn is not None:
+            await session_conn.close()
+
+    return exit_code
+
+
 def main():
     api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         console.print("[bold red]Error:[/bold red] Please set OPENROUTER_API_KEY or OPENAI_API_KEY")
         sys.exit(1)
 
-    tui = CodeHackTUI()
-
-    try:
-        asyncio.run(tui.run())
-    except KeyboardInterrupt:
-        console.print("\n  [dim]Shutting down...[/dim]")
+    args = _parse_args(sys.argv[1:])
+    sys.exit(asyncio.run(_run_tui(args)))
 
 
 if __name__ == "__main__":

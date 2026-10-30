@@ -10,6 +10,8 @@
 
 All three modes share the same 6 MCP servers — start once, use anywhere.
 
+![](./code-hacker_openrouter_glm53.png)
+
 ![](./code-hacker2.png)
 ![](./code-hacker.png)
 ![](./TUI.png)

@@ -28,16 +28,6 @@ mcp = FastMCP(name="multi-project", host="localhost", port=8007)
 # Workspace config persisted in .agent-memory
 WORKSPACE_FILE = Path.cwd() / ".agent-memory" / "workspace.json"
 
-ALLOWED_EXTENSIONS = {
-    '.txt', '.py', '.java', '.js', '.ts', '.jsx', '.tsx', '.json', '.md',
-    '.csv', '.log', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-    '.clj', '.edn', '.cljs', '.cljc', '.go', '.rs', '.toml', '.cfg', '.ini',
-    '.sql', '.graphql', '.proto', '.gradle', '.properties', '.env',
-    '.Jenkinsfile', '.Dockerfile', '.groovy', '.kt', '.swift', '.rb',
-    '.php', '.vue', '.svelte',
-}
-
-
 def _load_workspace() -> dict:
     """Load workspace config."""
     if WORKSPACE_FILE.exists():
@@ -63,16 +53,6 @@ def _resolve_project_path(ws: dict, name_or_path: str) -> Optional[str]:
     if Path(name_or_path).is_dir():
         return str(Path(name_or_path).resolve())
     return None
-
-
-def _is_allowed_file(path: str) -> bool:
-    """Check if file extension is allowed, or if it's a known config file."""
-    p = Path(path)
-    if p.suffix.lower() in ALLOWED_EXTENSIONS:
-        return True
-    # Allow known extensionless config files
-    known_names = {'Jenkinsfile', 'Dockerfile', 'Makefile', 'Vagrantfile', 'Gemfile', 'Rakefile'}
-    return p.name in known_names
 
 
 def _run_git(args: list[str], cwd: str, timeout: int = 30) -> dict:
@@ -410,8 +390,6 @@ async def workspace_edit_file(project: str, file_path: str, old_string: str, new
     full_path = Path(project_root) / file_path
     if not full_path.is_file():
         return f"Error: File not found: {full_path}"
-    if not _is_allowed_file(str(full_path)):
-        return f"Error: File type not allowed: {full_path.suffix}"
 
     content = await _read_file_content(str(full_path))
     if content is None:
@@ -448,8 +426,6 @@ async def workspace_write_file(project: str, file_path: str, content: str) -> st
         return f"Error: Project '{project}' not found. Available: {available}"
 
     full_path = Path(project_root) / file_path
-    if not _is_allowed_file(str(full_path)):
-        return f"Error: File type not allowed: {full_path.suffix}"
 
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)

@@ -335,7 +335,6 @@ This applies to:
 │    └─ All tools are read-only           │
 │                                         │
 │  multi_project.py:                      │
-│    ├─ File type whitelist (same policy) │
 │    ├─ Command blocklist (rm/format/dd)  │
 │    ├─ Command timeout (30s)             │
 │    └─ Workspace config in .agent-memory │

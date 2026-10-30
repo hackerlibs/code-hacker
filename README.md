@@ -314,7 +314,6 @@ This applies to:
 │                                         │
 │  filesystem.py:                         │
 │    ├─ Path safety check (blocks .. traversal) │
-│    ├─ File type whitelist (text files only)    │
 │    ├─ File size limit (10MB)            │
 │    ├─ Command blocklist (rm/format/dd/...)     │
 │    └─ Command timeout (30s)             │
@@ -749,10 +748,6 @@ You: Show me what's changed across all my projects
 ```
 
 ## Customization & Extension
-
-### Add File Type Whitelist
-
-Edit `ALLOWED_EXTENSIONS` in `filesystem.py`.
 
 ### Modify Command Blocklist
 

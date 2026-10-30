@@ -9,7 +9,6 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP(name="filesystem-command", host='localhost', port=8001)
 
 # Constants
-ALLOWED_EXTENSIONS = {'.txt', '.py', '.java', '.js', '.json', '.md', '.csv', '.log', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.clj', '.edn', '.cljs', '.cljc', '.dump'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 BLOCKED_COMMANDS = {'rm', 'del', 'format', 'mkfs', 'dd', 'shutdown', 'reboot', 'halt', 'poweroff'}
 DEFAULT_ENCODING = 'utf-8'
@@ -21,10 +20,6 @@ def is_safe_path(path: str) -> bool:
         return not any(part.startswith('..') for part in Path(path).parts)
     except Exception:
         return False
-
-def is_allowed_file(path: str) -> bool:
-    """Check if file extension is allowed."""
-    return Path(path).suffix.lower() in ALLOWED_EXTENSIONS
 
 def is_safe_command(command: str) -> bool:
     """Check if command is safe to execute."""
@@ -93,9 +88,6 @@ async def read_file(file_path: str) -> str:
     if not is_safe_path(file_path):
         return f"Error: Unsafe file path: {file_path}"
     
-    if not is_allowed_file(file_path):
-        return f"Error: File type not allowed: {Path(file_path).suffix}"
-    
     path = Path(file_path)
     if not path.exists():
         return f"Error: File does not exist: {file_path}"
@@ -124,9 +116,6 @@ async def write_file(file_path: str, content: str, encoding: str = DEFAULT_ENCOD
     if not is_safe_path(file_path):
         return f"Error: Unsafe file path: {file_path}"
     
-    if not is_allowed_file(file_path):
-        return f"Error: File type not allowed: {Path(file_path).suffix}"
-    
     if len(content.encode(encoding)) > MAX_FILE_SIZE:
         return f"Error: Content too large (>{MAX_FILE_SIZE} bytes)"
     
@@ -153,9 +142,6 @@ async def append_file(file_path: str, content: str, encoding: str = DEFAULT_ENCO
     """
     if not is_safe_path(file_path):
         return f"Error: Unsafe file path: {file_path}"
-    
-    if not is_allowed_file(file_path):
-        return f"Error: File type not allowed: {Path(file_path).suffix}"
     
     try:
         path = Path(file_path)
@@ -308,8 +294,6 @@ async def edit_file(file_path: str, old_string: str, new_string: str) -> str:
     """
     if not is_safe_path(file_path):
         return f"Error: Unsafe file path: {file_path}"
-    if not is_allowed_file(file_path):
-        return f"Error: File type not allowed: {Path(file_path).suffix}"
 
     path = Path(file_path)
     if not path.exists():
@@ -345,8 +329,6 @@ async def read_file_lines(file_path: str, start_line: int = 1, end_line: int = 0
     """
     if not is_safe_path(file_path):
         return f"Error: Unsafe file path: {file_path}"
-    if not is_allowed_file(file_path):
-        return f"Error: File type not allowed: {Path(file_path).suffix}"
 
     path = Path(file_path)
     if not path.exists():

@@ -70,7 +70,16 @@ OPENROUTER_API_KEY=your-key uv run python web_app.py
 # Open http://localhost:8000
 ```
 
-### 2c. Use with TUI (Claude Code-style Terminal Interface)
+* Example for openrouter
+
+```bash
+export LLM_BASE_URL="https://openrouter.ai/api/v1"
+export OPENROUTER_API_KEY="sk-or-v1-xxxxxxxxx"
+export LLM_MODEL="z-ai/glm-5.3"
+python web_app.py
+```
+
+### 2c. Use with TUI (Claude Code-style Terminal Interface) (Recommend!) 
 
 ```bash
 # Start the TUI (requires OPENROUTER_API_KEY)
@@ -109,6 +118,15 @@ The web app (and TUI) is a **complete AI programming tool** built on [deepagents
 │                                                                         │
 │  FastAPI + WebSocket → Hacker Terminal UI (http://localhost:8000)       │
 └─────────────────────────────────────────────────────────────────────────┘
+```
+
+* Example for openrouter
+
+```bash
+export LLM_BASE_URL="https://openrouter.ai/api/v1"
+export OPENROUTER_API_KEY="sk-or-v1-xxxxxxxxx"
+export LLM_MODEL="z-ai/glm-5.3"
+python tui_app.py
 ```
 
 ### 3. Run Integration Tests (LLM-powered)
